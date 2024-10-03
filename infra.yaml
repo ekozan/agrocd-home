@@ -7,7 +7,7 @@ metadata:
   - resources-finalizer.argocd.argoproj.io
 spec:
   source:
-    path: apps
+    path: infra
     repoURL: 'https://github.com/ekozan/agrocd-home.git'
     targetRevision: main
   destination:
