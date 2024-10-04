@@ -12,7 +12,7 @@ spec:
   source:
     chart: trust-manager
     repoURL: https://charts.jetstack.io
-    targetRevision: *
+    targetRevision: "*"
     helm:
       releaseName: trust-manager
   destination:
