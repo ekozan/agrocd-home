@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitea
+  namespace: argocd
+    annotations:
+    argocd.argoproj.io/sync-wave: "2"    
+spec:
+  project: default
+  source:
+    chart: gitea
+    repoURL: https://dl.gitea.com/charts/
+    targetRevision: 10.*.*
+    helm:
+      releaseName: gitea
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: gitea
+    # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
