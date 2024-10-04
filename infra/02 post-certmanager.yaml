@@ -1,0 +1,98 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: cert-manager
+    repoURL: https://charts.jetstack.io
+    targetRevision: 1.15.*
+    helm:
+      releaseName: cert-manager
+      valuesObject:    
+        configVersion: 0.0.1
+        groupName: acme.eko.ovh
+        image:
+          pullPolicy: IfNotPresent
+        issuers:
+          - acmeServerUrl: https://acme-v02.api.letsencrypt.org/directory
+            create: true
+            email: acme@nmail.fr
+            kind: ClusterIssuer
+            name: prod
+            namespace: default
+            ovhEndpointName: ovh-eu
+            cnameStrategy: None
+            ovhAuthenticationRef:
+              applicationKeyRef:
+                key: applicationKey
+                name: ovh-credentials
+              applicationSecretRef:
+                key: applicationSecret
+                name: ovh-credentials
+              consumerKeyRef:
+                key: consumerKey
+                name: ovh-credentials
+          - acmeServerUrl: https://acme-staging-v02.api.letsencrypt.org/directory
+            create: false
+            email: acme@nmail.fr
+            kind: ClusterIssuer
+            name: le-staging
+            namespace: default
+            ovhEndpointName: ovh-eu
+            cnameStrategy: None
+            ovhAuthenticationRef:
+              applicationKeyRef:
+                key: applicationKey
+                name: ovh-credentials
+              applicationSecretRef:
+                key: applicationSecret
+                name: ovh-credentials
+              consumerKeyRef:
+                key: consumerKey
+                name: ovh-credentials
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: cert-manager
+  # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: post-certmanager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"    
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: HEAD
+    path: ./infra/post-certmanager
+   
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
