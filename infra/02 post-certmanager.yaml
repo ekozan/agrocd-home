@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cert-manager
+  name: cert-manager-webhook-ovh
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "2"
@@ -10,11 +10,11 @@ metadata:
 spec:
   project: default
   source:
-    chart: cert-manager
-    repoURL: https://charts.jetstack.io
-    targetRevision: 1.15.*
+    chart: cert-manager-webhook-ovh
+    repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
+    targetRevision: 0.*
     helm:
-      releaseName: cert-manager
+      releaseName: cert-manager-webhook-ovh
       valuesObject:    
         configVersion: 0.0.1
         groupName: acme.eko.ovh
