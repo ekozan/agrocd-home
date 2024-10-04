@@ -30,8 +30,6 @@ spec:
           hosts:
             - host: vault.server
               paths: []
-      
-
   destination:
     server: "https://kubernetes.default.svc"
     namespace: vault
