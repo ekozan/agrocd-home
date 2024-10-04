@@ -22,8 +22,15 @@ spec:
           activeVaultPodOnly: false
           serviceType: "ClusterIP"
           serviceNodePort: null
-          externalPort: 80
+          externalPort: 8200
           targetPort: 8200
+        ingress:
+          enabled: true
+          activeService: true
+          hosts:
+            - host: vault.server
+              paths: []
+      
 
   destination:
     server: "https://kubernetes.default.svc"
