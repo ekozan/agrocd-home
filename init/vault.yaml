@@ -15,6 +15,16 @@ spec:
     targetRevision: 0.28.*
     helm:
       releaseName: vault
+      valuesObject:    
+        ui:
+          enabled: true
+          publishNotReadyAddresses: true
+          activeVaultPodOnly: false
+          serviceType: "ClusterIP"
+          serviceNodePort: null
+          externalPort: 8200
+          targetPort: 8200
+
   destination:
     server: "https://kubernetes.default.svc"
     namespace: vault
