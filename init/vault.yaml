@@ -22,7 +22,7 @@ spec:
           activeVaultPodOnly: false
           serviceType: "ClusterIP"
           serviceNodePort: null
-          externalPort: 8200
+          externalPort: 80
           targetPort: 8200
 
   destination:
