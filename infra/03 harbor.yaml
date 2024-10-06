@@ -1,0 +1,215 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+  namespace: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: harbor
+    repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
+    targetRevision: 1.15.*
+    helm:
+      releaseName: harbor
+      valuesObject:    
+        expose:
+          type: ingress
+          ingress:
+            hosts:
+              core: harbor.ffd.link
+        externalURL: https://harbor.ffd.link
+        persistence:
+          enabled: true
+          resourcePolicy: "keep"
+          persistentVolumeClaim:
+            registry:
+              #existingClaim: ""
+              storageClass: "longhorn"
+              subPath: ""
+              accessMode: ReadWriteOnce
+              size: 5Gi
+              annotations: {}
+            jobservice:
+              jobLog:
+                existingClaim: ""
+                storageClass: "longhorn"
+                subPath: ""
+                accessMode: ReadWriteOnce
+                size: 1Gi
+                annotations: {}
+            # If external database is used, the following settings for database will
+            # be ignored
+            database:
+              existingClaim: ""
+              storageClass: "longhorn"
+              subPath: ""
+              accessMode: ReadWriteOnce
+              size: 1Gi
+              annotations: {}
+            # If external Redis is used, the following settings for Redis will
+            # be ignored
+            redis:
+              existingClaim: ""
+              storageClass: "longhorn"
+              subPath: ""
+              accessMode: ReadWriteOnce
+              size: 1Gi
+              annotations: {}
+            trivy:
+              existingClaim: ""
+              storageClass: "longhorn"
+              subPath: ""
+              accessMode: ReadWriteOnce
+              size: 5Gi
+              annotations: {}
+          
+          imageChartStorage:
+            disableredirect: false
+            
+            # Specify the type of storage: "filesystem", "azure", "gcs", "s3", "swift",
+            # "oss" and fill the information needed in the corresponding section. The type
+            # must be "filesystem" if you want to use persistent volumes for registry
+            type: filesystem
+            filesystem:
+              rootdirectory: /storage
+              #maxthreads: 100
+            s3:
+              # Set an existing secret for S3 accesskey and secretkey
+              # keys in the secret should be REGISTRY_STORAGE_S3_ACCESSKEY and REGISTRY_STORAGE_S3_SECRETKEY for registry
+              #existingSecret: ""
+              region: us-west-1
+              bucket: bucketname
+              #accesskey: awsaccesskey
+              #secretkey: awssecretkey
+              #regionendpoint: http://myobjects.local
+              #encrypt: false
+              #keyid: mykeyid
+              #secure: true
+              #skipverify: false
+              #v4auth: true
+              #chunksize: "5242880"
+              #rootdirectory: /s3/object/name/prefix
+              #storageclass: STANDARD
+              #multipartcopychunksize: "33554432"
+              #multipartcopymaxconcurrency: 100
+              #multipartcopythresholdsize: "33554432"
+
+        existingSecretAdminPassword: admin-password
+        existingSecretAdminPasswordKey: HARBOR_ADMIN_PASSWORD
+
+        internalTLS:
+          # If internal TLS enabled
+          enabled: false
+          # enable strong ssl ciphers (default: false)
+          strong_ssl_ciphers: false
+          # There are three ways to provide tls
+          # 1) "auto" will generate cert automatically
+          # 2) "manual" need provide cert file manually in following value
+          # 3) "secret" internal certificates from secret
+          certSource: "auto"
+          # The content of trust ca, only available when `certSource` is "manual"
+          trustCa: ""
+          # core related cert configuration
+          core:
+            # secret name for core's tls certs
+            secretName: ""
+            # Content of core's TLS cert file, only available when `certSource` is "manual"
+            crt: ""
+            # Content of core's TLS key file, only available when `certSource` is "manual"
+            key: ""
+          # jobservice related cert configuration
+          jobservice:
+            # secret name for jobservice's tls certs
+            secretName: ""
+            # Content of jobservice's TLS key file, only available when `certSource` is "manual"
+            crt: ""
+            # Content of jobservice's TLS key file, only available when `certSource` is "manual"
+            key: ""
+          # registry related cert configuration
+          registry:
+            # secret name for registry's tls certs
+            secretName: ""
+            # Content of registry's TLS key file, only available when `certSource` is "manual"
+            crt: ""
+            # Content of registry's TLS key file, only available when `certSource` is "manual"
+            key: ""
+          # portal related cert configuration
+          portal:
+            # secret name for portal's tls certs
+            secretName: ""
+            # Content of portal's TLS key file, only available when `certSource` is "manual"
+            crt: ""
+            # Content of portal's TLS key file, only available when `certSource` is "manual"
+            key: ""
+          # trivy related cert configuration
+          trivy:
+            # secret name for trivy's tls certs
+            secretName: ""
+            # Content of trivy's TLS key file, only available when `certSource` is "manual"
+            crt: ""
+            # Content of trivy's TLS key file, only available when `certSource` is "manual"
+            key: ""
+
+        ipFamily:
+          # ipv6Enabled set to true if ipv6 is enabled in cluster, currently it affected the nginx related component
+          ipv6:
+            enabled: true
+          # ipv4Enabled set to true if ipv4 is enabled in cluster, currently it affected the nginx related component
+          ipv4:
+            enabled: true
+
+        # The name of the secret which contains key named "ca.crt". Setting this enables the
+        # download link on portal to download the CA certificate when the certificate isn't
+        # generated automatically
+        caSecretName: ""
+
+
+        # If using existingSecretSecretKey, the key must be secretKey
+        #existingSecretSecretKey: "secret-key"
+
+        # The proxy settings for updating trivy vulnerabilities from the Internet and replicating
+        # artifacts from/to the registries that cannot be reached directly
+        proxy:
+          httpProxy:
+          httpsProxy:
+          noProxy: 127.0.0.1,localhost,.local,.internal
+          components:
+            - core
+            - jobservice
+            - trivy
+
+        # Run the migration job via helm hook
+        enableMigrateHelmHook: false
+
+        # The custom ca bundle secret, the secret must contain key named "ca.crt"
+        # which will be injected into the trust store for core, jobservice, registry, trivy components
+        # caBundleSecretName: ""
+
+        # cache layer configurations
+        cache:
+          # default is not enabled.
+          enabled: false
+          # default keep cache for one day.
+          expireHours: 24
+
+        database:
+          # if external database is used, set "type" to "external"
+          # and fill the connection information in "external" section
+          type: internal
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: cert-manager
+  # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
+
+
+    
