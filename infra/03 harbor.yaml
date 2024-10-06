@@ -7,6 +7,12 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
 spec:
   project: default
   source:
@@ -204,12 +210,6 @@ spec:
     server: "https://kubernetes.default.svc"
     namespace: cert-manager
   # Sync policy
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true  
-    automated: 
-      prune: true
-      selfHeal: true
 
 
     
