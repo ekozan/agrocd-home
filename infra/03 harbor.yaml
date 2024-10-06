@@ -7,14 +7,15 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
-syncPolicy:
+
+spec:
+  project: default
+  syncPolicy:
     syncOptions:
       - CreateNamespace=true  
     automated: 
       prune: true
       selfHeal: true
-spec:
-  project: default
   source:
     chart: harbor
     repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
