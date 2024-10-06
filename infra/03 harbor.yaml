@@ -16,9 +16,12 @@ spec:
     automated: 
       prune: true
       selfHeal: true
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: harbor
   source:
     chart: harbor
-    repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
+    repoURL: https://helm.goharbor.io
     targetRevision: 1.15.*
     helm:
       releaseName: harbor
@@ -207,10 +210,7 @@ spec:
           # if external database is used, set "type" to "external"
           # and fill the connection information in "external" section
           type: internal
-  destination:
-    server: "https://kubernetes.default.svc"
-    namespace: cert-manager
-  # Sync policy
+
 
 
     
