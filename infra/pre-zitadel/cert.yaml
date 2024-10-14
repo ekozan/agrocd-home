@@ -1,0 +1,25 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zitadel-postgresql
+  namespace: zitadel
+spec:
+  isCA: true
+  commonName: zitadel-postgresql
+  secretName: zitadel-postgresql-tls
+  # 365 days
+  duration: 8760h0m0s
+  # 15 days
+  renewBefore: 360h0m0s
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 4096
+  issuerRef:
+    name: my-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  dnsNames:
+    - "*.postgresql-shared-pgpool.zitadel.svc.cluster.local"
+    - postgresql-shared-pgpool.zitadel.svc.cluster.local"
+    - postgresql-shared-pgpool

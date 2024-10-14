@@ -1,0 +1,78 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: zitadel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"    
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: zitadel
+    # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
+  source:
+    chart: zitadel
+    repoURL: https://charts.zitadel.com
+    targetRevision: 8.*.*
+    helm:
+      releaseName: zitadel
+      valuesObject:  
+        replicaCount: 1
+        zitadel:
+          masterkeySecretName: zitadel-masterkey
+          configSecretName: zitadel-secrets
+          configSecretKey: config-yaml
+          configmapConfig:
+            ExternalSecure: true
+            ExternalDomain: zitadel.ffd.link
+            TLS:
+              Enabled: false
+            Database:
+              Postgres:
+                Host: postgresql
+                Port: 5432
+                Database: zitadel
+                MaxOpenConns: 20
+                MaxIdleConns: 10
+                MaxConnLifetime: 30m
+                MaxConnIdleTime: 5m
+                User:
+                  Username: zitadel
+                  SSL:
+                    Mode: require #verify-ca
+                Admin:
+                  Username: postgres
+                  SSL:
+                    Mode: require #verify-ca
+        ingress:
+          enabled: true
+          hosts:
+            - host: zitadel.ffd.link
+              paths:
+                - path: /
+                  pathType: Prefix
+        extraVolumes:
+            - name: ca-certificates
+              configMap:
+                name: local-ca-bundle
+                defaultMode: 0644
+                optional: false
+                items:
+                - key: trust-bundle.pem
+                  path: trust-bundle.pem
+
+        extraVolumeMounts:
+            - mountPath: /etc/ssl/certs/
+              name: ca-certificates
+              readOnly: true    
+              
+        dbSslCaCrtSecret: idp-postgresql-tls
