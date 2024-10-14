@@ -75,4 +75,4 @@ spec:
               name: ca-certificates
               readOnly: true    
               
-        dbSslCaCrtSecret: idp-postgresql-tls
+        dbSslCaCrtSecret: zitadel-postgresql-tls
