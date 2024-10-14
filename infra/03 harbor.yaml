@@ -26,7 +26,7 @@ spec:
       releaseName: harbor
       valuesObject:    
         expose:
-          type: ingress
+          type: ingress        
           ingress:
             hosts:
               core: harbor.ffd.link

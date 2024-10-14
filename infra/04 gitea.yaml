@@ -9,12 +9,6 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  source:
-    chart: gitea
-    repoURL: https://dl.gitea.com/charts/
-    targetRevision: 10.*.*
-    helm:
-      releaseName: gitea
   destination:
     server: "https://kubernetes.default.svc"
     namespace: gitea
@@ -25,3 +19,30 @@ spec:
     automated: 
       prune: true
       selfHeal: true
+  source:
+    chart: gitea
+    repoURL: https://dl.gitea.com/charts/
+    targetRevision: 10.*.*
+    helm:
+      releaseName: gitea
+      valuesObject:  
+        postgresql-ha:
+          enabled: false
+        postgresql:
+          enabled: true
+          global:
+            postgresql:
+              service:
+                ports:
+                  postgresql: 5432
+          primary:
+            persistence:
+              size: 10Gi
+        redis:
+          enabled: true
+          architecture: standalone
+          master:
+            count: 1
+        
+        redis-cluster:
+          enabled: false
