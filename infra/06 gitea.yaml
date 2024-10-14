@@ -26,6 +26,8 @@ spec:
     helm:
       releaseName: gitea
       valuesObject:  
+        ingress:
+          enabled: true
         postgresql-ha:
           enabled: false
         postgresql:
