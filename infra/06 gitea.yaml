@@ -28,6 +28,11 @@ spec:
       valuesObject:  
         ingress:
           enabled: true
+          hosts:
+            - host: git.ffd.link
+              paths:
+                - path: /
+                  pathType: Prefix
         postgresql-ha:
           enabled: false
         postgresql:
