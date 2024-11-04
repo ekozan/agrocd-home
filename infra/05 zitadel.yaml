@@ -33,7 +33,7 @@ spec:
           configSecretKey: config-yaml
           configmapConfig:
             ExternalSecure: true
-            ExternalDomain: zitadel.ffd.link
+            ExternalDomain: idp.ffd.link
             TLS:
               Enabled: false
             Database:
@@ -56,7 +56,7 @@ spec:
         ingress:
           enabled: true
           hosts:
-            - host: zitadel.ffd.link
+            - host: idp.ffd.link
               paths:
                 - path: /
                   pathType: Prefix
