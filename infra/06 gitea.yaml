@@ -50,6 +50,7 @@ spec:
           architecture: standalone
           master:
             count: 1
-        
         redis-cluster:
           enabled: false
+        actions:
+          enabled: true
