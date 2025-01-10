@@ -54,3 +54,5 @@ spec:
           enabled: false
         actions:
           enabled: true
+          provisioning:
+            enabled: true
