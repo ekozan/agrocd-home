@@ -29,6 +29,7 @@ spec:
           type: ingress
           tls:
             enabled: true
+            certSource: "secret"
             secret:
               secretName: "ffd-link-tls"
           ingress:
