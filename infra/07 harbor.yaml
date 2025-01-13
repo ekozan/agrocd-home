@@ -21,12 +21,16 @@ spec:
   source:
     chart: harbor
     repoURL: https://helm.goharbor.io
-    targetRevision: 1.15.*
+    targetRevision: 1.16.*
     helm:
       releaseName: harbor
       valuesObject:    
         expose:
-          type: ingress        
+          type: ingress
+          tls:
+            enabled: true
+            secret:
+              secretName: "ffd-link-tls"
           ingress:
             hosts:
               core: harbor.ffd.link
