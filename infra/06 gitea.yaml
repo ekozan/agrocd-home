@@ -33,6 +33,10 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
+        gitea:
+          config:
+            server: 
+              ROOT_URL: https://git.ffd.link
         postgresql-ha:
           enabled: false
         postgresql:
