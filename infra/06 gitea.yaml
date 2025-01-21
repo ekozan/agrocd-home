@@ -22,12 +22,12 @@ spec:
   source:
     chart: gitea
     repoURL: https://dl.gitea.com/charts/
-    targetRevision: 10.6.1
+    targetRevision: 10.6.0
     helm:
       releaseName: gitea
       valuesObject: 
         image:
-          tag: 1.23.0 
+          tag: 1.23.1 
         ingress:
           enabled: true
           hosts:
