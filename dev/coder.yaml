@@ -26,23 +26,10 @@ spec:
     helm:
       releaseName: coder
       valuesObject:    
-        # coder -- Primary configuration for `coder server`.
         coder:
-          env: 
-          - name: CODER_PG_CONNECTION_URL
-            valueFrom:
-              secretKeyRef:
-                # You'll need to create a secret called coder-db-url with your
-                # Postgres connection URL like:
-                # postgres://coder:password@postgres:5432/coder?sslmode=disable
-                name: coder-db-url
-                key: url
-           - name: "CODER_ACCESS_URL"
-             value: "https://coder.fdd.link"
           envUseClusterAccessURL: false
           replicaCount: 1
           workspaceProxy: false
-          
           ingress:
             enable: true
             host: "coder.ffd.link"
@@ -51,3 +38,15 @@ spec:
               enable: true
               secretName: "ffd-link-tls"
               wildcardSecretName: "ffd-link-tls"
+          env: 
+            - name: CODER_PG_CONNECTION_URL
+              valueFrom:
+                secretKeyRef:
+                  # You'll need to create a secret called coder-db-url with your
+                  # Postgres connection URL like:
+                  # postgres://coder:password@postgres:5432/coder?sslmode=disable
+                  name: coder-db-url
+                  key: url
+             - name: "CODER_ACCESS_URL"
+               value: "https://coder.fdd.link"
+         
