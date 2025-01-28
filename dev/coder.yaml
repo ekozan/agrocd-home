@@ -25,7 +25,7 @@ spec:
     targetRevision: 2.18.4
     helm:
       releaseName: coder
-      value: |
+      valuesObject:    
         # coder -- Primary configuration for `coder server`.
         coder:
           env: 
@@ -39,14 +39,7 @@ spec:
                 key: url
            - name: "CODER_ACCESS_URL"
              value: "https://coder.fdd.link"
-          envFrom: []
-          # - configMapRef:
-          #     name: coder-config
-          # - secretRef:
-          #     name: coder-config
-        
           envUseClusterAccessURL: false
-
           replicaCount: 1
           workspaceProxy: false
           
