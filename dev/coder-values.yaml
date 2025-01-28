@@ -1,0 +1,64 @@
+# coder -- Primary configuration for `coder server`.
+coder:
+  env: 
+  - name: CODER_PG_CONNECTION_URL
+    valueFrom:
+      secretKeyRef:
+        # You'll need to create a secret called coder-db-url with your
+        # Postgres connection URL like:
+        # postgres://coder:password@postgres:5432/coder?sslmode=disable
+        name: coder-db-url
+        key: url
+   - name: "CODER_ACCESS_URL"
+     value: "https://coder.fdd.link"
+  envFrom: []
+  # - configMapRef:
+  #     name: coder-config
+  # - secretRef:
+  #     name: coder-config
+
+  # coder.envUseClusterAccessURL -- Determines whether the CODER_ACCESS_URL env
+  # is added to coder.env if it's not already set there. Set this to false if
+  # defining CODER_ACCESS_URL in coder.envFrom to avoid conflicts.
+  envUseClusterAccessURL: true
+
+  # coder.tls -- The TLS configuration for Coder.
+  tls:
+    # coder.tls.secretNames -- A list of TLS server certificate secrets to mount
+    # into the Coder pod. The secrets should exist in the same namespace as the
+    # Helm deployment and should be of type "kubernetes.io/tls". The secrets
+    # will be automatically mounted into the pod if specified, and the correct
+    # "CODER_TLS_*" environment variables will be set for you.
+    secretNames: []
+
+  # coder.replicaCount -- The number of Kubernetes deployment replicas. This
+  # should only be increased if High Availability is enabled.
+  #
+  # This is an Enterprise feature. Contact sales@coder.com.
+  replicaCount: 1
+
+  # coder.workspaceProxy -- Whether or not this deployment of Coder is a Coder
+  # Workspace Proxy. Workspace Proxies reduce the latency between the user and
+  # their workspace for web connections (workspace apps and web terminal) and
+  # proxied connections from the CLI. Workspace Proxies are optional and only
+  # recommended for geographically sparse teams.
+  #
+  # Make sure you set CODER_PRIMARY_ACCESS_URL and CODER_PROXY_SESSION_TOKEN in
+  # the environment below. You can get a proxy token using the CLI:
+  #   coder wsproxy create \
+  #     --name "proxy-name" \
+  #     --display-name "Proxy Name" \
+  #     --icon "/emojis/xyz.png"
+  #
+  # This is an Enterprise feature. Contact sales@coder.com
+  # Docs: https://coder.com/docs/admin/workspace-proxies
+  workspaceProxy: false
+  
+  ingress:
+    enable: true
+    host: "coder.ffd.link"
+    wildcardHost: "*-coder.ffd.link"
+    tls:
+      enable: true
+      secretName: "ffd-link-tls"
+      wildcardSecretName: "ffd-link-tls"
