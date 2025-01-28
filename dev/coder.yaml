@@ -26,5 +26,5 @@ spec:
     helm:
       releaseName: coder
       valueFiles: 
-        - coder-value.yaml
+        - coder-values.yaml
       ignoreMissingValueFiles: true
