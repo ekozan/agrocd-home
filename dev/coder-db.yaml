@@ -25,6 +25,13 @@ spec:
     targetRevision: 15.*.*
     helm:
       releaseName: postgresql
-      valueFiles:
-      - coder-db-values.yaml
-      ignoreMissingValueFiles: true
+      value: |
+        volumePermissions:
+          enabled: true
+        tls:
+          enabled: false
+        global:
+          postgresql:
+            auth:
+              username: "coder"
+              existingSecret: "postgresql-auth"
