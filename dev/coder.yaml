@@ -25,7 +25,6 @@ spec:
     targetRevision: 2.18.4
     helm:
       releaseName: coder
-      ignoreMissingValueFiles: true
       value: |
         # coder -- Primary configuration for `coder server`.
         coder:
