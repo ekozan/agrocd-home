@@ -25,12 +25,6 @@ spec:
     targetRevision: 15.*.*
     helm:
       releaseName: postgresql
-      valuesObject:  
-        volumePermissions:
-          enabled: true
-        tls:
-          enabled: false
-        global:
-          postgresql:
-            auth:
-              existingSecret: "postgresql-auth"
+      valueFiles:
+      - coder-db-values.yaml
+      ignoreMissingValueFiles: true
