@@ -25,7 +25,7 @@ spec:
     targetRevision: 15.*.*
     helm:
       releaseName: postgresql
-      value: |
+      valuesObject:    
         volumePermissions:
           enabled: true
         tls:
