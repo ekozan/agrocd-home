@@ -30,9 +30,8 @@ spec:
           enabled: true
         tls:
           enabled: false
-        global:
-          postgresql:
-            auth:
-              username: coder
-              database: coder
-              existingSecret: postgresql-auth
+
+        auth:
+          username: coder
+          database: coder
+          existingSecret: postgresql-auth
