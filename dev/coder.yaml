@@ -27,13 +27,13 @@ spec:
       releaseName: coder
       valuesObject:    
         coder:
-          envUseClusterAccessURL: false
+          envUseClusterAccessURL: true
           replicaCount: 1
           workspaceProxy: false
           ingress:
             enable: true
             host: "coder.ffd.link"
-            wildcardHost: "*-coder.ffd.link"
+            wildcardHost: "*.coder.ffd.link"
             tls:
               enable: true
               secretName: "ffd-link-tls"
@@ -48,5 +48,7 @@ spec:
                 name: coder-db-url
                 key: url
           - name: "CODER_ACCESS_URL"
-            value: "https://coder.fdd.link"
+            value: "https://coder.ffd.link"
+          - name: "CODER_WILDCARD_ACCESS_URL"
+            value: "https://*.coder.ffd.link"
          
