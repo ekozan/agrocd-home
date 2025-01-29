@@ -47,8 +47,8 @@ spec:
                 # postgres://coder:password@postgres:5432/coder?sslmode=disable
                 name: coder-db-url
                 key: url
-          - name: "c"
-            value: "coder.ffd.link"
+          - name: "CODER_ACCESS_URL"
+            value: "https://coder.ffd.link"
           - name: "CODER_WILDCARD_ACCESS_URL"
             value: "*.coder.ffd.link"
          
