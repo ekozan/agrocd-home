@@ -38,6 +38,9 @@ spec:
               enable: true
               secretName: "ffd-link-tls"
               wildcardSecretName: "ffd-link-tls"
+          envFrom: 
+          - secretRef:
+            name: coder-auth
           env: 
           - name: CODER_PG_CONNECTION_URL
             valueFrom:
