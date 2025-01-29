@@ -33,5 +33,6 @@ spec:
         global:
           postgresql:
             auth:
-              username: "coder"
-              existingSecret: "postgresql-auth"
+              username: coder
+              database: coder
+              existingSecret: postgresql-auth
