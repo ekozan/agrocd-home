@@ -57,7 +57,7 @@ coder:
   ingress:
     enable: true
     host: "coder.ffd.link"
-    wildcardHost: "*-coder.ffd.link"
+    wildcardHost: "*.coder.ffd.link"
     tls:
       enable: true
       secretName: "ffd-link-tls"
