@@ -30,7 +30,6 @@ spec:
           enabled: true
         tls:
           enabled: false
-
         auth:
           username: coder
           database: coder
