@@ -12,10 +12,12 @@ spec:
   source:
     chart: traefik
     repoURL: https://traefik.github.io/charts
-    targetRevision: v34.3.0
+    targetRevision: 34.3.0
     helm:
       releaseName: traefik3
-      valuesObject:    
+      valuesObject:
+        service: 
+          ipFamilyPolicy: PreferDualStack
         ingressClass:  # @schema additionalProperties: false
           enabled: true
           isDefaultClass: false
