@@ -22,11 +22,14 @@ spec:
   source:
     chart: zitadel
     repoURL: https://charts.zitadel.com
-    targetRevision: 8.*.*
+    targetRevision: 9.0.*
     helm:
       releaseName: zitadel
       valuesObject:  
         replicaCount: 1
+        login:
+          ingress:
+            enabled: true
         zitadel:
           masterkeySecretName: zitadel-masterkey
           configSecretName: zitadel-secrets
