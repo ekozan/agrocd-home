@@ -1,5 +1,5 @@
 apiVersion: external-secrets.io/v1
-kind: ClusterSecretStores
+kind: ClusterSecretStore
 metadata:
   name: openbao-backend
   namespace: external-secrets
