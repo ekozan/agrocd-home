@@ -1,5 +1,5 @@
 apiVersion: external-secrets.io/v1
-kind: SecretStore
+kind: ClusterSecretStores
 metadata:
   name: openbao-backend
   namespace: external-secrets
@@ -15,5 +15,6 @@ spec:
         # points to a secret that contains a vault token
         # https://www.vaultproject.io/docs/auth/token
         tokenSecretRef:
-          name: "vault-token"
-          key: "token"
+          name: vault-token
+          namespace: external-secrets
+          key: token
