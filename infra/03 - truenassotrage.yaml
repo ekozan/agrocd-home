@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-truenas-smb
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"    
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: democratic-csi
+    # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
+  source:
+    chart: democratic-csi
+    repoURL: https://democratic-csi.github.io
+    targetRevision: 0.15.0
+    helm:
+      releaseName: democratic-csi
+      valuesObject: 
+        driver:
+          existingConfigSecret: democratic-csi-config
+        csiDriver:
+          name: "org.democratic-csi.smb"
+          fsGroupPolicy: File
+        storageClasses:
+        - name: freenas-smb-csi
+          defaultClass: false
+          reclaimPolicy: Delete
+          volumeBindingMode: Immediate
+          allowVolumeExpansion: true
+          parameters:
+            fsType: cifs        
+          mountOptions:
+          - noatime
+          - nfsvers=4
+          secrets:
+            provisioner-secret:
+            controller-publish-secret:
+            node-stage-secret:
+            node-publish-secret:
+            controller-expand-secret:
