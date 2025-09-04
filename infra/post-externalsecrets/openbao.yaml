@@ -15,6 +15,6 @@ spec:
         # points to a secret that contains a vault token
         # https://www.vaultproject.io/docs/auth/token
         tokenSecretRef:
-          name: vault-token
+          name: openbao-token
           namespace: external-secrets
           key: token
