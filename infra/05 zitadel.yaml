@@ -22,7 +22,7 @@ spec:
   source:
     chart: zitadel
     repoURL: https://charts.zitadel.com
-    targetRevision: 9.0.*
+    targetRevision: 9.5.*
     helm:
       releaseName: zitadel
       valuesObject:  
