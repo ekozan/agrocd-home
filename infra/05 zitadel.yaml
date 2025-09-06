@@ -27,9 +27,15 @@ spec:
       releaseName: zitadel
       valuesObject:  
         replicaCount: 1
+        image:
+          # Overrides the image tag whose default is the chart appVersion.
+          tag: "v4.1.2"
         login:
           ingress:
             enabled: true
+          image:
+            # Overrides the image tag whose default is the chart appVersion.
+            tag: "v4.1.2"
         zitadel:
           masterkeySecretName: zitadel-masterkey
           configSecretName: zitadel-secrets
