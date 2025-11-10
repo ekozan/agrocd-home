@@ -26,8 +26,13 @@ spec:
     helm:
       releaseName: postgresql
       valuesObject:  
+        image:
+          repository: bitnamilegacy/postgresql
         volumePermissions:
           enabled: true
+          image:
+            repository: bitnamilegacy/os-shell
+
         tls:
           enabled: true
           certificatesSecret: zitadel-postgresql-tls
