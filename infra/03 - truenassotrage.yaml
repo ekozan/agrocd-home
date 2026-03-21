@@ -21,8 +21,8 @@ spec:
       selfHeal: true
   source:
     chart: democratic-csi
-    repoURL: https://democratic-csi.github.io
-    targetRevision: 0.15.0
+    repoURL: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
+    targetRevision: 1.20.1
     helm:
       releaseName: democratic-csi
       valuesObject: 
