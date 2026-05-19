@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitea-act
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"    
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: gitea
+    # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
+  source:
+    chart: actions
+    repoURL: https://dl.gitea.com/charts/
+    targetRevision: 0.1.0
+    helm:
+      releaseName: gitea
+      valuesObject: 
+        enabled: true
+        existingSecret: "runner-secret"
+        existingSecretKey: "runner-token"
