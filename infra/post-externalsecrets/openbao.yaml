@@ -7,7 +7,7 @@ spec:
   provider:
     vault:
       server: "https://openbao.ffd.link"
-      path: "kv/kubernetes"
+      path: "kv"
       # Version is the Vault KV secret engine version.
       # This can be either "v1" or "v2", defaults to "v2"
       version: "v2"
