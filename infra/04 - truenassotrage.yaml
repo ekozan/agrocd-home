@@ -36,7 +36,8 @@ spec:
           driver:
             extraVolumeMounts:
               - name: mount-cifs
-                mountPath: /usr/local/bin/mount.cifs
+                mountPath: /usr/sbin/mount.cifs    # ← corrigé
+                readOnly: true
           extraVolumes:
             - name: mount-cifs
               hostPath:
