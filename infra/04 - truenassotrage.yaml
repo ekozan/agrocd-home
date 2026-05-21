@@ -32,17 +32,7 @@ spec:
         csiDriver:
           name: "org.democratic-csi.smb"
           fsGroupPolicy: File
-        node:
-          driver:
-            extraVolumeMounts:
-              - name: mount-cifs
-                mountPath: /usr/local/sbin/mount.cifs   
-                readOnly: true
-          extraVolumes:
-            - name: mount-cifs
-              hostPath:
-                path: /usr/sbin/mount.cifs
-                type: File
+
         storageClasses:
           - name: freenas-smb-csi
             defaultClass: false
