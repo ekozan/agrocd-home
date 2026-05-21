@@ -38,11 +38,11 @@ spec:
               - name: mount-cifs
                 mountPath: /usr/local/bin/mount.cifs
                 subPath: mount.cifs
-            extraVolumes:
-              - name: mount-cifs
-                hostPath:
-                  path: /usr/sbin/mount.cifs
-                  type: File
+          extraVolumes:
+            - name: mount-cifs
+              hostPath:
+                path: /usr/sbin/mount.cifs
+                type: File
         storageClasses:
           - name: freenas-smb-csi
             defaultClass: false
