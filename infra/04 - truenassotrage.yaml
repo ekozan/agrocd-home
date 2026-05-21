@@ -37,7 +37,6 @@ spec:
             extraVolumeMounts:
               - name: mount-cifs
                 mountPath: /usr/local/bin/mount.cifs
-                subPath: mount.cifs
           extraVolumes:
             - name: mount-cifs
               hostPath:
