@@ -3,8 +3,6 @@ kind: ExternalSecret
 metadata:
   name: democratic-csi-smb-creds
   namespace: democratic-csi
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -16,5 +14,5 @@ spec:
   data:
     - secretKey: mount_flags
       remoteRef:
-        key: democratic-csi/smb-credentials
+        key: kubernetes/democratic-csi/smb-credentials
         property: mount_flags
