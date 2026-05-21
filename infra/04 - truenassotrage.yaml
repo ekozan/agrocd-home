@@ -4,7 +4,7 @@ metadata:
   name: democratic-csi-truenas-smb
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"    
+    argocd.argoproj.io/sync-wave: "4"    # ← 3 → 4
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -12,11 +12,10 @@ spec:
   destination:
     server: "https://kubernetes.default.svc"
     namespace: democratic-csi
-    # Sync policy
   syncPolicy:
     syncOptions:
-      - CreateNamespace=true  
-    automated: 
+      - CreateNamespace=true
+    automated:
       prune: true
       selfHeal: true
   source:
@@ -25,9 +24,11 @@ spec:
     targetRevision: 0.15.1
     helm:
       releaseName: democratic-csi
-      valuesObject: 
+      valuesObject:
         driver:
           existingConfigSecret: democratic-csi-config
+          config:
+            driver: freenas-smb    # ← stub obligatoire
         csiDriver:
           name: "org.democratic-csi.smb"
           fsGroupPolicy: File
@@ -38,7 +39,7 @@ spec:
           volumeBindingMode: Immediate
           allowVolumeExpansion: true
           parameters:
-            fsType: cifs        
+            fsType: cifs
           mountOptions:
           - noatime
           - nfsvers=4
