@@ -1,0 +1,20 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: democratic-csi-smb-creds
+  namespace: democratic-csi
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: democratic-csi-smb-creds
+    creationPolicy: Owner
+  data:
+    - secretKey: mount_flags
+      remoteRef:
+        key: democratic-csi/smb-credentials
+        property: mount_flags
