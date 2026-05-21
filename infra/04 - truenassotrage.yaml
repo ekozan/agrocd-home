@@ -33,25 +33,27 @@ spec:
           name: "org.democratic-csi.smb"
           fsGroupPolicy: File
         storageClasses:
-        - name: freenas-smb-csi
-          defaultClass: false
-          reclaimPolicy: Delete
-          volumeBindingMode: Immediate
-          allowVolumeExpansion: true
-          parameters:
-            fsType: cifs
-          mountOptions:
-            - noatime
-            - nobrl
-            - cache=none
-            - vers=3.0
-            - uid=0
-            - gid=0
-            - file_mode=0777
-            - dir_mode=0777
-          secrets:
-            provisioner-secret:
-            controller-publish-secret:
-            node-stage-secret:
-            node-publish-secret:
-            controller-expand-secret:
+          - name: freenas-smb-csi
+            defaultClass: false
+            reclaimPolicy: Delete
+            volumeBindingMode: Immediate
+            allowVolumeExpansion: true
+            parameters:
+              fsType: cifs
+              csi.storage.k8s.io/node-stage-secret-name: democratic-csi-smb-creds
+              csi.storage.k8s.io/node-stage-secret-namespace: democratic-csi
+            mountOptions:
+              - noatime
+              - nobrl
+              - cache=none
+              - vers=3.0
+              - uid=0
+              - gid=0
+              - file_mode=0777
+              - dir_mode=0777
+            secrets:
+              provisioner-secret:
+              controller-publish-secret:
+              node-stage-secret:
+              node-publish-secret:
+              controller-expand-secret:
