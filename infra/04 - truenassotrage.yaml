@@ -60,4 +60,5 @@ spec:
               controller-expand-secret:
         driver:
           existingConfigSecret: democratic-csi-config
-        
+          config:
+            driver: freenas-api-nfs
