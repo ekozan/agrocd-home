@@ -1,1 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"    
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: litellm
+    # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true  
+    automated: 
+      prune: true
+      selfHeal: true
+  source:
+    chart: litellm
+    repoURL: oci://docker.litellm.ai/berriai/litellm-helm
+    targetRevision: 0.1.2
+    helm:
+      releaseName: litellm
+      valuesObject:   
+          image:
+            repository: ghcr.io/berriai/litellm
+            tag: "latest"
+          replicaCount: 1
+          service:
+            type: ClusterIP
+            port: 4000
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secret
+                  key: ANTHROPIC_API_KEY
+          config:
+            model_list:
+              - model_name: claude-3-sonnet
+                litellm_params:
+                  model: anthropic/claude-3-sonnet
+                  api_key: os.environ/ANTHROPIC_API_KEY
+      
+              - model_name: claude-3-haiku
+                litellm_params:
+                  model: anthropic/claude-3-haiku
+                  api_key: os.environ/ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
 
+         
