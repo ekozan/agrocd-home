@@ -1,80 +1,154 @@
+```yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: matrix-mas-zitadel-config
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: external-secrets-store
+
+  target:
+    name: matrix-mas-zitadel-config
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        zitadel.yaml: |
+          upstream_oauth2:
+            providers:
+              - id: 01ARZ3NDEKTSV4RRFFQ69G5FAV
+                human_name: "FFD Link"
+                issuer: "https://id.ffd.link"
+                client_id: "matrix-mas"
+                client_secret: "{{ .client_secret }}"
+                token_endpoint_auth_method: client_secret_basic
+                scope: "openid profile email"
+                claims_imports:
+                  subject:
+                    template: "{{ `{{ user.sub }}` }}"
+                  localpart:
+                    action: require
+                    template: "{{ `{{ user.preferred_username }}` }}"
+                  displayname:
+                    action: suggest
+                    template: "{{ `{{ user.name }}` }}"
+                  email:
+                    action: suggest
+                    template: "{{ `{{ user.email }}` }}"
+                    set_email_verification: import
+
+  data:
+    - secretKey: client_secret
+      remoteRef:
+        key: matrix/zitadel/mas
+        property: client_secret
+
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: matrix
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "2"    
+    argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+
 spec:
   project: default
+
   destination:
-    server: "https://kubernetes.default.svc"
+    server: https://kubernetes.default.svc
     namespace: matrix
-    # Sync policy
+
   syncPolicy:
     syncOptions:
-      - CreateNamespace=true  
-    automated: 
+      - CreateNamespace=true
+    automated:
       prune: true
       selfHeal: true
+
   source:
-    chart: matrix-stack
     repoURL: ghcr.io/element-hq/ess-helm
-    targetRevision: 26.5.1
+    chart: matrix-stack
+    targetRevision: 26.5.2
+
     helm:
       releaseName: matrix
-      valuesObject:    
-        # ============================================================
-        # ESS Community — matrix-stack values.yaml
-        # Domaine      : matrix.ffd.link  (server_name: ffd.link)
-        # IdP OIDC     : Zitadel @ id.ffd.link
-        # Ingress      : Traefik
-        # TLS          : cert-manager + Let's Encrypt
-        # DB           : SQLite (embarqué, PVC Longhorn 2Gi)
-        # Médias       : PVC NFS democratic-csi 50Gi (NAS)
-        # MAS          : désactivé (Zitadel gère l'OIDC)
-        # Fédération   : activée
-        # ============================================================
-         
-        synapse:
+      valuesObject:
+        serverName: ffd.link
+
+        ingress:
+          className: traefik
+          tlsEnabled: true
+          tlsSecret: ffd-link-tls
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+
+        storage:
+          storageClassName: longhorn
+          resourcePolicy: keep
+
+        postgres:
           enabled: true
-         
-          serverName: ffd.link
-          publicBaseUrl: "https://matrix.ffd.link"
-         
-          config:
-            enableRegistration: false
-         
-            # SQLite embarqué — pas de PostgreSQL
-            database:
-              name: sqlite3
-              args:
-                database: /data/homeserver.db
-         
-            federation:
-              enabled: true
-         
-            oidcProviders:
-              - idp_id: zitadel
-                idp_name: "FFD Link"
-                discover: true
-                issuer: "https://id.ffd.link"
-                client_id: "matrix-synapse"
-                client_secret_path: "/secrets/matrix/zitadel-client-secret"
-                scopes:
-                  - openid
-                  - profile
-                  - email
-                user_mapping_provider:
-                  config:
-                    localpart_template: "{{ user.preferred_username }}"
-                    display_name_template: "{{ user.name }}"
-                    email_template: "{{ user.email }}"
-         
-            logLevel: WARNING
-         
+          storage:
+            size: 10Gi
+            storageClassName: longhorn
+
+        matrixAuthenticationService:
+          enabled: true
+
+          ingress:
+            host: auth.ffd.link
+            className: traefik
+            tlsSecret: ffd-link-tls
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+
+          additional:
+            zitadel.yaml:
+              configSecret: matrix-mas-zitadel-config
+              configSecretKey: zitadel.yaml
+
+          syn2mas:
+            enabled: true
+            dryRun: true
+
+        synapse:
+          ingress:
+            host: matrix.ffd.link
+            className: traefik
+            tlsSecret: ffd-link-tls
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
+
+          media:
+            storage:
+              size: 50Gi
+              storageClassName: freenas-nfs-csi
+
+          logging:
+            rootLevel: WARNING
+
           resources:
             requests:
               cpu: 100m
@@ -82,81 +156,33 @@ spec:
             limits:
               cpu: 1000m
               memory: 768Mi
-         
-          # PVC data (SQLite) — Longhorn, petit et rapide
-          persistence:
-            enabled: true
-            storageClassName: longhorn
-            size: 2Gi
-            accessMode: ReadWriteOnce
-         
-          # PVC médias — NAS via democratic-csi NFS
-          media:
-            persistence:
-              enabled: true
-              storageClassName: freenas-nfs-csi   # ← directement ici
-              size: 50Gi
-              accessMode: ReadWriteMany
-                 
-        # -- Well-known fédération
+
         wellKnownDelegation:
           enabled: true
+
           ingress:
-            enabled: true
+            host: ffd.link
             className: traefik
+            tlsSecret: ffd-link-tls
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt-prod
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
-            hosts:
-              - host: ffd.link
-                paths:
-                  - path: /.well-known/matrix
-                    pathType: Prefix
-            tls:
-              - secretName: ffd-link-tls
-         
-        # -- Synapse ingress
-          ingress:
-            enabled: true
-            className: traefik
-            annotations:
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-              traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              traefik.ingress.kubernetes.io/router.tls: "true"
-            hosts:
-              - host: matrix.ffd.link
-                paths:
-                  - path: /
-                    pathType: Prefix
-            tls:
-              - secretName: ffd-link-tls
-         
-        # -- Element Web
+
         elementWeb:
           enabled: true
-         
-          config:
-            default_server_config:
-              m.homeserver:
-                base_url: "https://matrix.ffd.link"
-                server_name: "ffd.link"
-            brand: "FFD Chat"
-            default_theme: dark
-         
+
           ingress:
-            enabled: true
+            host: chat.ffd.link
             className: traefik
+            tlsSecret: ffd-link-tls
             annotations:
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
-            hosts:
-              - host: chat.ffd.link
-                paths:
-                  - path: /
-                    pathType: Prefix
-            tls:
-              - secretName: ffd-link-tls
+
+          additional:
+            brand: FFD Chat
+            default_theme: dark
+
           resources:
             requests:
               cpu: 20m
@@ -164,16 +190,10 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
-         
-        # -- MAS désactivé
-        mas:
+
+        matrixRTC:
           enabled: false
-         
-        # -- PostgreSQL désactivé
-        postgresql:
+
+        hookshot:
           enabled: false
-         
-        # -- Coturn désactivé
-        coturn:
-          enabled: false
- 
+```
