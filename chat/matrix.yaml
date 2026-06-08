@@ -114,9 +114,7 @@ spec:
                   - path: /.well-known/matrix
                     pathType: Prefix
             tls:
-              - secretName: ffd-link-wellknown-tls
-                hosts:
-                  - ffd.link
+              - secretName: ffd-link-tls
          
         # -- Synapse ingress
           ingress:
@@ -132,9 +130,7 @@ spec:
                   - path: /
                     pathType: Prefix
             tls:
-              - secretName: matrix-ffd-link-tls
-                hosts:
-                  - matrix.ffd.link
+              - secretName: ffd-link-tls
          
         # -- Element Web
         elementWeb:
@@ -161,8 +157,6 @@ spec:
                     pathType: Prefix
             tls:
               - secretName: ffd-link-tls
-                hosts:
-                  - chat.ffd.link
           resources:
             requests:
               cpu: 20m
