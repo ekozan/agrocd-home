@@ -1,4 +1,3 @@
-```yaml
 ---
 apiVersion: v1
 kind: Namespace
@@ -8,6 +7,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 
 ---
+
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
@@ -196,4 +196,3 @@ spec:
 
         hookshot:
           enabled: false
-```
