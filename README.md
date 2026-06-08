@@ -12,7 +12,8 @@ Kubernetes Cluster
 ├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Coder (IDE cloud)
-└── AI/LLM          → LiteLLM (proxy API multi-modèles)
+├── AI/LLM          → LiteLLM (proxy API multi-modèles)
+└── Chat            → Matrix (Synapse + Element Web)
 ```
 
 ### Domaines exposés
@@ -23,6 +24,9 @@ Kubernetes Cluster
 | Coder | `https://coder.ffd.link` |
 | Zitadel | `https://idp.ffd.link` |
 | Vault | `https://vault.server` |
+| Matrix (Synapse) | `https://matrix.ffd.link` |
+| Element Web (Chat) | `https://chat.ffd.link` |
+| Well-known fédération | `https://ffd.link/.well-known/matrix` |
 
 ---
 
@@ -54,6 +58,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 
 - Credentials TrueNAS (Democratic-CSI) : NFS et SMB
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
+- Client secret Zitadel pour Matrix (`/secrets/matrix/zitadel-client-secret`)
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -69,6 +74,9 @@ kubectl apply -f infra.yaml
 
 # 3. Services dev (Coder, LiteLLM)
 kubectl apply -f dev.yaml
+
+# 4. Chat (Matrix + Element Web)
+kubectl apply -f chat.yaml
 ```
 
 ArgoCD prend ensuite le relais et synchronise automatiquement chaque ressource.
@@ -91,7 +99,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `6` | Gitea |
 | `7` | Gitea Act Runner |
 
-Les services dev (Coder, LiteLLM) sont gérés indépendamment via `dev.yaml`.
+Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
 ---
 
@@ -122,11 +130,14 @@ agrocd-home/
 │   ├── 06-gitea.yaml
 │   └── 07-gitea-act-runner.yaml
 │
-└── dev/
-    ├── coder.yaml
-    ├── coder-db.yaml
-    ├── litellm.yaml
-    └── litellm-secret.yaml
+├── dev/
+│   ├── coder.yaml
+│   ├── coder-db.yaml
+│   ├── litellm.yaml
+│   └── litellm-secret.yaml
+│
+└── chat/
+    └── matrix.yaml             # Matrix Synapse + Element Web
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -151,6 +162,7 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+| Matrix (Synapse + Element) | `helm.element.io/community` (matrix-stack) | 26.5.1 | matrix |
 
 ---
 
