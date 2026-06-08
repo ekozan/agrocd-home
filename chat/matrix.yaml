@@ -55,9 +55,12 @@ spec:
   data:
     - secretKey: client_secret
       remoteRef:
-        key: matrix/zitadel/mas
+        key: kubernetes/matrix/zitadel
         property: client_secret
-
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/matrix/zitadel
+        property: client_id
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
