@@ -19,9 +19,8 @@ spec:
   refreshInterval: 1h
 
   secretStoreRef:
+    name: openbao-backend
     kind: ClusterSecretStore
-    name: external-secrets-store
-
   target:
     name: matrix-mas-zitadel-config
     creationPolicy: Owner
