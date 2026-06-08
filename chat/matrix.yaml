@@ -33,8 +33,8 @@ spec:
             providers:
               - id: 01ARZ3NDEKTSV4RRFFQ69G5FAV
                 human_name: "FFD Link"
-                issuer: "https://id.ffd.link"
-                client_id: "matrix-mas"
+                issuer: "https://idp.ffd.link"
+                client_id: "{{ .client_id }}"
                 client_secret: "{{ .client_secret }}"
                 token_endpoint_auth_method: client_secret_basic
                 scope: "openid profile email"
@@ -115,7 +115,7 @@ spec:
           enabled: true
 
           ingress:
-            host: auth.ffd.link
+            host: matrix-auth.ffd.link
             className: traefik
             tlsSecret: ffd-link-tls
             annotations:
@@ -128,8 +128,8 @@ spec:
               configSecretKey: zitadel.yaml
 
           syn2mas:
-            enabled: true
-            dryRun: true
+            enabled: false
+            dryRun: false
 
         synapse:
           ingress:
