@@ -21,7 +21,7 @@ spec:
       selfHeal: true
   source:
     chart: matrix-stack
-    repoURL: https://helm.element.io/community
+    repoURL: ghcr.io/element-hq/ess-helm
     targetRevision: 26.5.1
     helm:
       releaseName: matrix
