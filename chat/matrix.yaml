@@ -43,7 +43,7 @@ spec:
                     template: "{{ `{{ user.sub }}` }}"
                   localpart:
                     action: require
-                    template: "{{ `{{ user.preferred_username }}` }}"
+                    template: "{{ `{{ user.sub }}"` }}"
                   displayname:
                     action: suggest
                     template: "{{ `{{ user.name }}` }}"
