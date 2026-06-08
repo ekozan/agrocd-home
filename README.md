@@ -1,0 +1,186 @@
+# agrocd-home
+
+Dépôt GitOps pour la gestion déclarative d'un cluster Kubernetes via ArgoCD. Ce repo regroupe l'ensemble des applications et de l'infrastructure sous forme de manifests Helm, déployés et synchronisés automatiquement.
+
+## Architecture globale
+
+```
+Kubernetes Cluster
+├── Réseau          → Traefik 3 (ingress, OIDC, ModSecurity)
+├── Secrets         → Vault / OpenBao + External-Secrets + Cert-Manager
+├── Identité        → Zitadel (IdP OIDC)
+├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
+├── Git & CI/CD     → Gitea + Gitea Act Runner
+├── Dev             → Coder (IDE cloud)
+└── AI/LLM          → LiteLLM (proxy API multi-modèles)
+```
+
+### Domaines exposés
+
+| Service | URL |
+|---------|-----|
+| Gitea | `https://git.ffd.link` |
+| Coder | `https://coder.ffd.link` |
+| Zitadel | `https://idp.ffd.link` |
+| Vault | `https://vault.server` |
+
+---
+
+## Prérequis
+
+| Outil | Version minimale |
+|-------|-----------------|
+| Kubernetes | 1.26+ |
+| ArgoCD | 2.x (déployé dans le namespace `argocd`) |
+| kubectl | compatible avec le cluster |
+| Helm | 3.x (pour debug local uniquement) |
+
+> ArgoCD doit être déjà installé et fonctionnel sur le cluster avant d'appliquer ce repo.
+
+---
+
+## Installation
+
+### 1. Cloner le dépôt
+
+```bash
+git clone https://github.com/ekozan/agrocd-home.git
+cd agrocd-home
+```
+
+### 2. Configurer les secrets dans Vault
+
+Avant de déployer, les secrets suivants doivent être présents dans Vault / OpenBao :
+
+- Credentials TrueNAS (Democratic-CSI) : NFS et SMB
+- Clés API LLM (Anthropic, etc.) pour LiteLLM
+- Certificats TLS si non gérés par Cert-Manager
+
+### 3. Appliquer les ArgoCD Applications
+
+Les trois applications ArgoCD racines sont à appliquer dans cet ordre :
+
+```bash
+# 1. Couche init : Traefik + Vault
+kubectl apply -f init.yaml
+
+# 2. Infrastructure complète (certificats, identité, stockage, Git…)
+kubectl apply -f infra.yaml
+
+# 3. Services dev (Coder, LiteLLM)
+kubectl apply -f dev.yaml
+```
+
+ArgoCD prend ensuite le relais et synchronise automatiquement chaque ressource.
+
+---
+
+## Ordre de déploiement (`sync-wave`)
+
+L'infrastructure est déployée en vagues successives grâce à l'annotation `argocd.argoproj.io/sync-wave` :
+
+| Wave | Composants |
+|------|-----------|
+| `-1` | Namespaces (`external-secrets`, `democratic-csi`) |
+| `0` | Traefik, Vault |
+| `1` | Cert-Manager, Trust-Manager, External-Secrets, Kubernetes-Replicator |
+| `2` | Issuers ACME (OVH webhook), Secret Stores (Vault/OpenBao) |
+| `3` | Certificat TLS PostgreSQL Zitadel |
+| `4` | PostgreSQL Zitadel, Democratic-CSI (TrueNAS) |
+| `5` | Zitadel (IdP) |
+| `6` | Gitea |
+| `7` | Gitea Act Runner |
+
+Les services dev (Coder, LiteLLM) sont gérés indépendamment via `dev.yaml`.
+
+---
+
+## Structure du repo
+
+```
+agrocd-home/
+├── init.yaml                  # ArgoCD App → ./init
+├── infra.yaml                 # ArgoCD App → ./infra
+├── dev.yaml                   # ArgoCD App → ./dev
+│
+├── init/
+│   ├── 00-traefik3.yaml      # Ingress controller Traefik 3
+│   └── vault.yaml            # HashiCorp Vault
+│
+├── infra/
+│   ├── init/                 # Namespaces
+│   ├── post-certmanager/     # CA auto-signée + bundle
+│   ├── post-externalsecrets/ # Secret stores (OpenBao, democratic-csi)
+│   ├── pre-zitadel/          # Certificat PostgreSQL
+│   ├── post-zitadel/         # (réservé)
+│   ├── 00 init.yaml          # Init namespaces
+│   ├── 01 *.yaml             # Cert-Manager, External-Secrets, Replicator
+│   ├── 02 *.yaml             # Post-cert-manager, Post-external-secrets
+│   ├── 03 pre-zitadel.yaml
+│   ├── 04 *.yaml             # DB Zitadel + TrueNAS storage
+│   ├── 05 zitadel.yaml
+│   ├── 06 gitea.yaml
+│   └── 07-gitea-act-runner.yaml
+│
+└── dev/
+    ├── coder.yaml
+    ├── coder-db.yaml
+    ├── litellm.yaml
+    └── litellm-secret.yaml
+```
+
+---
+
+## Composants et versions Helm
+
+| Application | Chart | Version | Namespace |
+|-------------|-------|---------|-----------|
+| Traefik 3 | `traefik.github.io/charts` | 34.3.0 | kube-system |
+| Vault | `helm.releases.hashicorp.com` | 0.28.x | vault |
+| Cert-Manager | `charts.jetstack.io` | 1.15.x | cert-manager |
+| Trust-Manager | `charts.jetstack.io` | latest | cert-manager |
+| External-Secrets | `charts.external-secrets.io` | 0.19.x | external-secrets |
+| Kubernetes-Replicator | `helm.mittwald.de` | 2.10.x | kube-system |
+| Zitadel | `charts.zitadel.com` | 9.5.x | zitadel |
+| PostgreSQL (Zitadel) | `charts.bitnami.com/bitnami` | 15.x | zitadel |
+| Gitea | `dl.gitea.com/charts/` | 12.4.0 | gitea |
+| Gitea Act Runner | `dl.gitea.com/charts/` | 0.1.0 | gitea |
+| Democratic-CSI | `democratic-csi.github.io/charts/` | 0.15.1 | democratic-csi |
+| Coder | `helm.coder.com/v2` | 2.34.0 | coder |
+| PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
+| LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+
+---
+
+## Gestion des certificats TLS
+
+- **Let's Encrypt (ACME)** via le webhook OVH DNS-01 pour les domaines publics
+- **CA auto-signée** pour la communication interne (PostgreSQL, services internes)
+- Trust-Manager distribue automatiquement le bundle CA dans tous les namespaces
+
+---
+
+## Vérifier l'état de synchronisation
+
+```bash
+# Voir toutes les ArgoCD Applications
+kubectl get applications -n argocd
+
+# Détail d'une application
+kubectl describe application infra -n argocd
+
+# Forcer une synchronisation
+argocd app sync infra
+```
+
+---
+
+## Contribuer
+
+Ce repo suit un workflow GitOps strict :
+
+1. Toute modification se fait via une PR sur la branche `main`
+2. ArgoCD détecte le changement et synchronise automatiquement (auto-sync + self-heal activés)
+3. Les suppressions sont propagées automatiquement (prune activé)
+
+> **Attention** : le prune est activé. Supprimer un fichier du repo supprime la ressource Kubernetes correspondante.
