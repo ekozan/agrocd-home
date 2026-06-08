@@ -113,13 +113,13 @@ agrocd-home/
 │   ├── post-externalsecrets/ # Secret stores (OpenBao, democratic-csi)
 │   ├── pre-zitadel/          # Certificat PostgreSQL
 │   ├── post-zitadel/         # (réservé)
-│   ├── 00 init.yaml          # Init namespaces
-│   ├── 01 *.yaml             # Cert-Manager, External-Secrets, Replicator
-│   ├── 02 *.yaml             # Post-cert-manager, Post-external-secrets
-│   ├── 03 pre-zitadel.yaml
-│   ├── 04 *.yaml             # DB Zitadel + TrueNAS storage
-│   ├── 05 zitadel.yaml
-│   ├── 06 gitea.yaml
+│   ├── 00-init.yaml          # Init namespaces
+│   ├── 01-*.yaml             # Cert-Manager, External-Secrets, Replicator
+│   ├── 02-*.yaml             # Post-cert-manager, Post-external-secrets
+│   ├── 03-pre-zitadel.yaml
+│   ├── 04-*.yaml             # DB Zitadel + TrueNAS storage
+│   ├── 05-zitadel.yaml
+│   ├── 06-gitea.yaml
 │   └── 07-gitea-act-runner.yaml
 │
 └── dev/
@@ -128,6 +128,8 @@ agrocd-home/
     ├── litellm.yaml
     └── litellm-secret.yaml
 ```
+
+> **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
 
 ---
 
@@ -184,3 +186,14 @@ Ce repo suit un workflow GitOps strict :
 3. Les suppressions sont propagées automatiquement (prune activé)
 
 > **Attention** : le prune est activé. Supprimer un fichier du repo supprime la ressource Kubernetes correspondante.
+
+---
+
+## Améliorations envisagées
+
+| Priorité | Action |
+|----------|--------|
+| Rapide | Uniformiser le nommage des fichiers `infra/` (remplacer les espaces par des tirets) |
+| Rapide | Supprimer ou remplir `infra/post-zitadel/createApp.yaml` (actuellement vide) |
+| Moyen terme | Ajouter un `App of Apps` racine pour bootstrapper le cluster en un seul `kubectl apply` |
+| Optionnel | Extraire les Helm values dans des fichiers dédiés (`infra/values/zitadel.yaml`, etc.) pour améliorer la lisibilité des diffs Git |
