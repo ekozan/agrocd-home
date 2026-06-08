@@ -181,8 +181,8 @@ spec:
               traefik.ingress.kubernetes.io/router.tls: "true"
 
           additional:
-            brand: FFD Chat
-            default_theme: dark
+            brand: "FFD Chat"
+            default_theme: "dark"
 
           resources:
             requests:
@@ -201,7 +201,7 @@ spec:
         elementAdmin:
           enabled: true
           ingress:
-            host: admin.server
+            host: admin-matrix.server
             className: traefik
             tlsSecret: ffd-link-tls
             annotations:
