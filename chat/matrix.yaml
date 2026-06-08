@@ -180,9 +180,7 @@ spec:
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
 
-          additional:
-            brand: '"FFD Chat"'
-            default_theme: '"dark"'
+    
 
           resources:
             requests:
