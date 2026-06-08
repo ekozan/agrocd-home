@@ -163,7 +163,6 @@ spec:
           enabled: true
 
           ingress:
-            host: ffd.link
             className: traefik
             tlsSecret: ffd-link-tls
             annotations:
