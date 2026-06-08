@@ -197,3 +197,13 @@ spec:
 
         hookshot:
           enabled: false
+
+        elementAdmin:
+          enabled: true
+          ingress:
+            host: admin.server
+            className: traefik
+            tlsSecret: ffd-link-tls
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.tls: "true"
