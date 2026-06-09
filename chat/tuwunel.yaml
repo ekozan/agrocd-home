@@ -33,6 +33,7 @@ data:
     [[global.identity_provider]]
     id = "zitadel"
     name = "FFD Link"
+    brand = "zitadel"
     issuer = "https://id.ffd.link"
     # client_id et client_secret injectés via env (ExternalSecret → openbao-backend kubernetes/matrix/zitadel)
     client_id_env = "TUWUNEL_OIDC_CLIENT_ID"
