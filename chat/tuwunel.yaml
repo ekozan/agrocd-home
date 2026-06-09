@@ -1,0 +1,245 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# ConfigMap — tuwunel.toml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tuwunel-config
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  tuwunel.toml: |
+    [global]
+    server_name = "ffd.link"
+    database_path = "/data"
+    address = ["0.0.0.0"]
+    port = 8008
+    allow_registration = false
+    allow_federation = true
+    log = "warn"
+
+    [global.well_known]
+    client = "https://matrix.ffd.link"
+    server = "matrix.ffd.link:443"
+
+    [[global.identity_provider]]
+    id = "zitadel"
+    name = "FFD Link"
+    issuer = "https://id.ffd.link"
+    # client_id et client_secret injectés via env (ExternalSecret → openbao-backend kubernetes/matrix/zitadel)
+    client_id_env = "TUWUNEL_OIDC_CLIENT_ID"
+    client_secret_env = "TUWUNEL_OIDC_CLIENT_SECRET"
+    scopes = ["openid", "profile", "email"]
+---
+# ExternalSecret — client secret OIDC Zitadel
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: tuwunel-oidc-secret
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: tuwunel-oidc-secret
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        TUWUNEL_OIDC_CLIENT_ID: "{{ .client_id }}"
+        TUWUNEL_OIDC_CLIENT_SECRET: "{{ .client_secret }}"
+  data:
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/matrix/zitadel
+        property: client_secret
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/matrix/zitadel
+        property: client_id
+---
+# PersistentVolumeClaim — base de données RocksDB (Longhorn)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tuwunel-data
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+---
+# PersistentVolumeClaim — médias (TrueNAS NFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tuwunel-media
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: freenas-nfs-csi
+  resources:
+    requests:
+      storage: 50Gi
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tuwunel
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tuwunel
+  template:
+    metadata:
+      labels:
+        app: tuwunel
+    spec:
+      containers:
+        - name: tuwunel
+          image: ghcr.io/matrix-construct/tuwunel:v1.7.1
+          args:
+            - --config
+            - /etc/tuwunel/tuwunel.toml
+          envFrom:
+            - secretRef:
+                name: tuwunel-oidc-secret
+          ports:
+            - containerPort: 8008
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tuwunel
+            - name: data
+              mountPath: /data
+            - name: media
+              mountPath: /media
+          readinessProbe:
+            httpGet:
+              path: /_matrix/client/versions
+              port: 8008
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /_matrix/client/versions
+              port: 8008
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: tuwunel-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: tuwunel-data
+        - name: media
+          persistentVolumeClaim:
+            claimName: tuwunel-media
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: tuwunel
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: tuwunel
+  ports:
+    - name: http
+      port: 8008
+      targetPort: 8008
+---
+# Ingress — homeserver matrix.ffd.link
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tuwunel
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: matrix.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tuwunel
+                port:
+                  number: 8008
+  tls:
+    - secretName: matrix-ffd-link-tls
+      hosts:
+        - matrix.ffd.link
+---
+# Ingress — well-known fédération sur ffd.link
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tuwunel-wellknown
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ffd.link
+      http:
+        paths:
+          - path: /.well-known/matrix
+            pathType: Prefix
+            backend:
+              service:
+                name: tuwunel
+                port:
+                  number: 8008
+  tls:
+    - secretName: ffd-link-wellknown-tls
+      hosts:
+        - ffd.link
