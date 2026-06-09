@@ -7,11 +7,42 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---
-# ExternalSecret — génère tuwunel.toml avec client_id/secret interpolés
+# ConfigMap — tuwunel.toml (pas de secrets, client_secret lu depuis fichier)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tuwunel-config
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  tuwunel.toml: |
+    [global]
+    server_name = "ffd.link"
+    database_path = "/data"
+    address = ["0.0.0.0"]
+    port = 8008
+    allow_registration = false
+    allow_federation = true
+    log = "warn"
+
+    [global.well_known]
+    client = "https://matrix.ffd.link"
+    server = "matrix.ffd.link:443"
+
+    [[global.identity_provider]]
+    brand = "zitadel"
+    name = "FFD Link"
+    issuer_url = "https://id.ffd.link"
+    client_id = "matrix-tuwunel"
+    client_secret_file = "/secrets/zitadel/client_secret"
+    scope = ["openid", "profile", "email"]
+---
+# ExternalSecret — client_secret Zitadel monté comme fichier
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: tuwunel-config
+  name: tuwunel-zitadel-secret
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "1"
@@ -21,39 +52,9 @@ spec:
     name: openbao-backend
     kind: ClusterSecretStore
   target:
-    name: tuwunel-config
+    name: tuwunel-zitadel-secret
     creationPolicy: Owner
-    template:
-      engineVersion: v2
-      type: Opaque
-      data:
-        tuwunel.toml: |
-          [global]
-          server_name = "ffd.link"
-          database_path = "/data"
-          address = ["0.0.0.0"]
-          port = 8008
-          allow_registration = false
-          allow_federation = true
-          log = "warn"
-
-          [global.well_known]
-          client = "https://matrix.ffd.link"
-          server = "matrix.ffd.link:443"
-
-          [[global.identity_provider]]
-          id = "zitadel"
-          name = "FFD Link"
-          brand = "zitadel"
-          issuer = "https://id.ffd.link"
-          client_id = "{{ .client_id }}"
-          client_secret = "{{ .client_secret }}"
-          scopes = ["openid", "profile", "email"]
   data:
-    - secretKey: client_id
-      remoteRef:
-        key: kubernetes/matrix/zitadel
-        property: client_id
     - secretKey: client_secret
       remoteRef:
         key: kubernetes/matrix/zitadel
@@ -129,6 +130,9 @@ spec:
             - name: config
               mountPath: /etc/tuwunel
               readOnly: true
+            - name: zitadel-secret
+              mountPath: /secrets/zitadel
+              readOnly: true
             - name: data
               mountPath: /data
             - name: media
@@ -147,8 +151,11 @@ spec:
             periodSeconds: 30
       volumes:
         - name: config
+          configMap:
+            name: tuwunel-config
+        - name: zitadel-secret
           secret:
-            secretName: tuwunel-config
+            secretName: tuwunel-zitadel-secret
         - name: data
           persistentVolumeClaim:
             claimName: tuwunel-data
