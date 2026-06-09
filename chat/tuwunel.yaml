@@ -45,7 +45,7 @@ spec:
           id = "zitadel"
           name = "FFD Link"
           brand = "zitadel"
-          issuer_url = "https://id.ffd.link"
+          issuer_url = "https://idp.ffd.link"
           client_id = "{{ .client_id }}"
           client_secret = "{{ .client_secret }}"
           scopes = ["openid", "profile", "email"]
