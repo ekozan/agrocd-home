@@ -7,44 +7,11 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---
-# ConfigMap — tuwunel.toml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tuwunel-config
-  namespace: matrix
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-data:
-  tuwunel.toml: |
-    [global]
-    server_name = "ffd.link"
-    database_path = "/data"
-    address = ["0.0.0.0"]
-    port = 8008
-    allow_registration = false
-    allow_federation = true
-    log = "warn"
-
-    [global.well_known]
-    client = "https://matrix.ffd.link"
-    server = "matrix.ffd.link:443"
-
-    [[global.identity_provider]]
-    id = "zitadel"
-    name = "FFD Link"
-    brand = "zitadel"
-    issuer = "https://id.ffd.link"
-    # client_id et client_secret injectés via env (ExternalSecret → openbao-backend kubernetes/matrix/zitadel)
-    client_id_env = "TUWUNEL_OIDC_CLIENT_ID"
-    client_secret_env = "TUWUNEL_OIDC_CLIENT_SECRET"
-    scopes = ["openid", "profile", "email"]
----
-# ExternalSecret — client secret OIDC Zitadel
+# ExternalSecret — génère tuwunel.toml avec client_id/secret interpolés
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: tuwunel-oidc-secret
+  name: tuwunel-config
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "1"
@@ -54,23 +21,43 @@ spec:
     name: openbao-backend
     kind: ClusterSecretStore
   target:
-    name: tuwunel-oidc-secret
+    name: tuwunel-config
     creationPolicy: Owner
     template:
       engineVersion: v2
       type: Opaque
       data:
-        TUWUNEL_OIDC_CLIENT_ID: "{{ .client_id }}"
-        TUWUNEL_OIDC_CLIENT_SECRET: "{{ .client_secret }}"
+        tuwunel.toml: |
+          [global]
+          server_name = "ffd.link"
+          database_path = "/data"
+          address = ["0.0.0.0"]
+          port = 8008
+          allow_registration = false
+          allow_federation = true
+          log = "warn"
+
+          [global.well_known]
+          client = "https://matrix.ffd.link"
+          server = "matrix.ffd.link:443"
+
+          [[global.identity_provider]]
+          id = "zitadel"
+          name = "FFD Link"
+          brand = "zitadel"
+          issuer = "https://id.ffd.link"
+          client_id = "{{ .client_id }}"
+          client_secret = "{{ .client_secret }}"
+          scopes = ["openid", "profile", "email"]
   data:
-    - secretKey: client_secret
-      remoteRef:
-        key: kubernetes/matrix/zitadel
-        property: client_secret
     - secretKey: client_id
       remoteRef:
         key: kubernetes/matrix/zitadel
         property: client_id
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/matrix/zitadel
+        property: client_secret
 ---
 # PersistentVolumeClaim — base de données RocksDB (Longhorn)
 apiVersion: v1
@@ -128,9 +115,6 @@ spec:
           args:
             - --config
             - /etc/tuwunel/tuwunel.toml
-          envFrom:
-            - secretRef:
-                name: tuwunel-oidc-secret
           ports:
             - containerPort: 8008
               name: http
@@ -144,6 +128,7 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/tuwunel
+              readOnly: true
             - name: data
               mountPath: /data
             - name: media
@@ -162,8 +147,8 @@ spec:
             periodSeconds: 30
       volumes:
         - name: config
-          configMap:
-            name: tuwunel-config
+          secret:
+            secretName: tuwunel-config
         - name: data
           persistentVolumeClaim:
             claimName: tuwunel-data
