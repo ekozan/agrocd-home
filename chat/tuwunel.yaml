@@ -160,7 +160,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tuwunel
+  name: tuwunelservice
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "2"
