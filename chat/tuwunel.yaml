@@ -109,6 +109,7 @@ spec:
       labels:
         app: tuwunel
     spec:
+      enableServiceLinks: false
       containers:
         - name: tuwunel
           image: ghcr.io/matrix-construct/tuwunel:v1.7.1
