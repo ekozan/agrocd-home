@@ -136,7 +136,7 @@ agrocd-home/
 │   └── litellm-secret.yaml
 │
 └── chat/
-    └── matrix.yaml             # Tuwunel (homeserver Matrix Rust)
+    └── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -161,7 +161,11 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
-| Tuwunel | OCI `ghcr.io/magikid/modern-conduwuit-helm` (conduwuit) | 1.7.1 | matrix |
+**Manifests bruts (sans Helm)**
+
+| Application | Image | Version | Namespace |
+|-------------|-------|---------|-----------|
+| Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 
 ---
 
