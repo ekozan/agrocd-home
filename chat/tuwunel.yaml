@@ -55,9 +55,15 @@ spec:
       data:
         TUWUNEL_OIDC_CLIENT_ID: "{{ .client_id }}"
         TUWUNEL_OIDC_CLIENT_SECRET: "{{ .client_secret }}"
-  dataFrom:
-    - extract:
-        key: secret/matrix
+  data:
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/matrix/zitadel
+        property: client_secret
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/matrix/zitadel
+        property: client_id
 ---
 # PersistentVolumeClaim — base de données RocksDB (Longhorn)
 apiVersion: v1
