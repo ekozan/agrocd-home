@@ -30,8 +30,9 @@ data:
     id = "zitadel"
     name = "FFD Link"
     issuer = "https://id.ffd.link"
-    client_id = "matrix-tuwunel"
-    # client_secret injecté via env TUWUNEL_OIDC_CLIENT_SECRET
+    # client_id et client_secret injectés via env (ExternalSecret → openbao-backend secret/matrix)
+    client_id_env = "TUWUNEL_OIDC_CLIENT_ID"
+    client_secret_env = "TUWUNEL_OIDC_CLIENT_SECRET"
     scopes = ["openid", "profile", "email"]
 ---
 # ExternalSecret — client secret OIDC Zitadel
@@ -43,16 +44,20 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: openbao
+    name: openbao-backend
     kind: ClusterSecretStore
   target:
     name: tuwunel-oidc-secret
     creationPolicy: Owner
-  data:
-    - secretKey: TUWUNEL_OIDC_CLIENT_SECRET
-      remoteRef:
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        TUWUNEL_OIDC_CLIENT_ID: "{{ .client_id }}"
+        TUWUNEL_OIDC_CLIENT_SECRET: "{{ .client_secret }}"
+  dataFrom:
+    - extract:
         key: secret/matrix
-        property: zitadel-client-secret
 ---
 # PersistentVolumeClaim — base de données RocksDB (Longhorn)
 apiVersion: v1
