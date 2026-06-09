@@ -180,7 +180,6 @@ metadata:
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "3"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
@@ -197,7 +196,7 @@ spec:
                 port:
                   number: 8008
   tls:
-    - secretName: matrix-ffd-link-tls
+    - secretName: ffd-link-tls
       hosts:
         - matrix.ffd.link
 ---
@@ -209,7 +208,6 @@ metadata:
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "3"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
@@ -226,6 +224,6 @@ spec:
                 port:
                   number: 8008
   tls:
-    - secretName: ffd-link-wellknown-tls
+    - secretName: ffd-link-tls
       hosts:
         - ffd.link
