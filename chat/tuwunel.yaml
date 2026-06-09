@@ -192,7 +192,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: tuwunel
+                name: tuwunelservice
                 port:
                   number: 8008
   tls:
@@ -220,7 +220,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: tuwunel
+                name: tuwunelservice
                 port:
                   number: 8008
   tls:
