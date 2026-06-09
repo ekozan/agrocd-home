@@ -13,7 +13,7 @@ Kubernetes Cluster
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
-└── Chat            → Matrix (Synapse + Element Web)
+└── Chat            → Tuwunel (homeserver Matrix léger en Rust)
 ```
 
 ### Domaines exposés
@@ -24,8 +24,7 @@ Kubernetes Cluster
 | Coder | `https://coder.ffd.link` |
 | Zitadel | `https://idp.ffd.link` |
 | Vault | `https://vault.server` |
-| Matrix (Synapse) | `https://matrix.ffd.link` |
-| Element Web (Chat) | `https://chat.ffd.link` |
+| Tuwunel (Matrix) | `https://matrix.ffd.link` |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 
 ---
@@ -58,7 +57,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 
 - Credentials TrueNAS (Democratic-CSI) : NFS et SMB
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
-- Client secret Zitadel pour Matrix (`/secrets/matrix/zitadel-client-secret`)
+- Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -137,7 +136,7 @@ agrocd-home/
 │   └── litellm-secret.yaml
 │
 └── chat/
-    └── matrix.yaml             # Matrix Synapse + Element Web
+    └── matrix.yaml             # Tuwunel (homeserver Matrix Rust)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -162,7 +161,7 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
-| Matrix (Synapse + Element) | `helm.element.io/community` (matrix-stack) | 26.5.1 | matrix |
+| Tuwunel | OCI `ghcr.io/magikid/modern-conduwuit-helm` (conduwuit) | 1.7.1 | matrix |
 
 ---
 
