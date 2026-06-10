@@ -117,7 +117,7 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: livekit
+  name: livekit-server
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "2"
