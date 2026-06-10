@@ -59,7 +59,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Credentials TrueNAS (Democratic-CSI) : NFS et SMB
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
-- Clé/secret d'API LiveKit pour Element Call (OpenBao : `kubernetes/matrix/livekit` → propriétés `api_key` et `api_secret`)
+- *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications

@@ -1,38 +1,91 @@
 ---
-# ExternalSecret — clé/secret d'API LiveKit (partagés SFU <-> lk-jwt-service)
-# À renseigner dans OpenBao : kubernetes/matrix/livekit -> { api_key, api_secret }
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
+# Bootstrap de la clé/secret d'API LiveKit (partagés SFU <-> lk-jwt-service).
+# Un Job génère le Secret "livekit-keys" UNE SEULE FOIS s'il n'existe pas, avec
+# des valeurs aléatoires. Le Secret n'est pas géré par Git/ArgoCD : il n'est donc
+# jamais pruné ni régénéré tant qu'on ne le supprime pas manuellement.
+# RBAC minimal : le ServiceAccount peut seulement get/create des secrets.
+apiVersion: v1
+kind: ServiceAccount
 metadata:
-  name: livekit-keys
+  name: livekit-keygen
   namespace: matrix
   annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: livekit-keygen
+subjects:
+  - kind: ServiceAccount
+    name: livekit-keygen
+    namespace: matrix
+---
+# Job hook ArgoCD (phase Sync, wave 1) — s'exécute après le namespace/RBAC
+# (wave 0) et avant les Deployments (wave 2). Idempotent : ne touche à rien si
+# le Secret existe déjà.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "1"
 spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: openbao-backend
-    kind: ClusterSecretStore
-  target:
-    name: livekit-keys
-    creationPolicy: Owner
-    template:
-      engineVersion: v2
-      type: Opaque
-      data:
-        # Format attendu par livekit-server : "<api_key>: <api_secret>"
-        LIVEKIT_KEYS: "{{ .api_key }}: {{ .api_secret }}"
-        LIVEKIT_KEY: "{{ .api_key }}"
-        LIVEKIT_SECRET: "{{ .api_secret }}"
-  data:
-    - secretKey: api_key
-      remoteRef:
-        key: kubernetes/matrix/livekit
-        property: api_key
-    - secretKey: api_secret
-      remoteRef:
-        key: kubernetes/matrix/livekit
-        property: api_secret
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: livekit-keygen
+    spec:
+      serviceAccountName: livekit-keygen
+      restartPolicy: OnFailure
+      containers:
+        - name: keygen
+          image: alpine/k8s:1.31.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              if kubectl get secret livekit-keys -n matrix >/dev/null 2>&1; then
+                echo "Secret livekit-keys déjà présent — rien à faire."
+                exit 0
+              fi
+              KEY="API$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
+              SECRET="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
+              kubectl create secret generic livekit-keys -n matrix \
+                --from-literal=LIVEKIT_KEYS="$KEY: $SECRET" \
+                --from-literal=LIVEKIT_KEY="$KEY" \
+                --from-literal=LIVEKIT_SECRET="$SECRET"
+              echo "Secret livekit-keys généré."
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
 ---
 # ConfigMap — configuration LiveKit (SFU)
 # Média exposé via un Service LoadBalancer dédié (MetalLB) :
