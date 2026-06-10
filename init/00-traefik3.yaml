@@ -18,14 +18,6 @@ spec:
       valuesObject:
         service:
           ipFamilyPolicy: PreferDualStack
-        # Entrypoint UDP dédié au média WebRTC de LiveKit (Element Call / MatrixRTC)
-        ports:
-          livekit-udp:
-            port: 7000
-            exposedPort: 7000
-            protocol: UDP
-            expose:
-              default: true
         ingressClass:  # @schema additionalProperties: false
           enabled: true
           isDefaultClass: false

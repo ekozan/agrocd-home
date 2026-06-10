@@ -25,7 +25,7 @@ Kubernetes Cluster
 | Zitadel | `https://idp.ffd.link` |
 | Vault | `https://vault.server` |
 | Tuwunel (Matrix) | `https://matrix.ffd.link` |
-| MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média UDP `7000`) |
+| MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média via LoadBalancer MetalLB : UDP `7882` / TCP `7881`) |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 
 ---
@@ -139,7 +139,7 @@ agrocd-home/
 │
 └── chat/
     ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
-    └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + IngressRouteUDP (7000)
+    └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.

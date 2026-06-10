@@ -35,7 +35,12 @@ spec:
         property: api_secret
 ---
 # ConfigMap — configuration LiveKit (SFU)
-# Mode UDP-mux à port unique (7000) exposé via Traefik (entrypoint livekit-udp).
+# Média exposé via un Service LoadBalancer dédié (MetalLB) :
+#   - UDP-mux à port unique 7882 (média WebRTC)
+#   - TCP 7881 (repli ICE/TCP)
+# use_external_ip : LiveKit découvre son IP publique via STUN pour les
+# candidats ICE. Si l'IP annoncée est incorrecte (NAT particulier), figer
+# rtc.node_ip avec l'IP du LoadBalancer.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -50,7 +55,7 @@ data:
       - "0.0.0.0"
     rtc:
       tcp_port: 7881
-      udp_port: 7000
+      udp_port: 7882
       use_external_ip: true
     logging:
       level: warn
@@ -92,7 +97,7 @@ spec:
             - containerPort: 7881
               name: rtc-tcp
               protocol: TCP
-            - containerPort: 7000
+            - containerPort: 7882
               name: rtc-udp
               protocol: UDP
           resources:
@@ -123,7 +128,7 @@ spec:
           configMap:
             name: livekit-config
 ---
-# Service — LiveKit (HTTP/WS signaling + média UDP)
+# Service — LiveKit signaling (backend de l'Ingress HTTPS, WS /rtc)
 apiVersion: v1
 kind: Service
 metadata:
@@ -132,6 +137,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
+  type: ClusterIP
   selector:
     app: livekit
   ports:
@@ -139,13 +145,33 @@ spec:
       port: 7880
       targetPort: 7880
       protocol: TCP
+---
+# Service LoadBalancer (MetalLB) — média WebRTC LiveKit
+#   - UDP 7882 (média)
+#   - TCP 7881 (repli ICE/TCP)
+# externalTrafficPolicy=Local : préserve l'IP source du client (recommandé WebRTC).
+# Pour figer l'IP : décommenter loadBalancerIP ou utiliser l'annotation MetalLB.
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-media
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # metallb.universe.tf/loadBalancerIPs: "192.168.x.y"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: livekit
+  ports:
     - name: rtc-tcp
       port: 7881
       targetPort: 7881
       protocol: TCP
     - name: rtc-udp
-      port: 7000
-      targetPort: 7000
+      port: 7882
+      targetPort: 7882
       protocol: UDP
 ---
 # Deployment — lk-jwt-service (MatrixRTC Authorization Service)
@@ -263,20 +289,3 @@ spec:
     - secretName: ffd-link-tls
       hosts:
         - matrix-rtc.ffd.link
----
-# IngressRouteUDP — média WebRTC LiveKit (UDP 7000)
-# S'appuie sur l'entrypoint Traefik "livekit-udp" (cf. init/00-traefik3.yaml)
-apiVersion: traefik.io/v1alpha1
-kind: IngressRouteUDP
-metadata:
-  name: livekit-udp
-  namespace: matrix
-  annotations:
-    argocd.argoproj.io/sync-wave: "3"
-spec:
-  entryPoints:
-    - livekit-udp
-  routes:
-    - services:
-        - name: livekit
-          port: 7000
