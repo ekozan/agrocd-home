@@ -25,6 +25,7 @@ Kubernetes Cluster
 | Zitadel | `https://idp.ffd.link` |
 | Vault | `https://vault.server` |
 | Tuwunel (Matrix) | `https://matrix.ffd.link` |
+| MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média via LoadBalancer MetalLB : UDP `7882` / TCP `7881`) |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 
 ---
@@ -58,6 +59,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Credentials TrueNAS (Democratic-CSI) : NFS et SMB
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
+- *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -136,7 +138,8 @@ agrocd-home/
 │   └── litellm-secret.yaml
 │
 └── chat/
-    └── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
+    ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
+    └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.

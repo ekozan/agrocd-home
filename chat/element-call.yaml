@@ -1,0 +1,348 @@
+---
+# Bootstrap de la clé/secret d'API LiveKit (partagés SFU <-> lk-jwt-service).
+# Un Job génère le Secret "livekit-keys" UNE SEULE FOIS s'il n'existe pas, avec
+# des valeurs aléatoires. Le Secret n'est pas géré par Git/ArgoCD : il n'est donc
+# jamais pruné ni régénéré tant qu'on ne le supprime pas manuellement.
+# RBAC minimal : le ServiceAccount peut seulement get/create des secrets.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: livekit-keygen
+subjects:
+  - kind: ServiceAccount
+    name: livekit-keygen
+    namespace: matrix
+---
+# Job hook ArgoCD (phase Sync, wave 1) — s'exécute après le namespace/RBAC
+# (wave 0) et avant les Deployments (wave 2). Idempotent : ne touche à rien si
+# le Secret existe déjà.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: livekit-keygen
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: livekit-keygen
+    spec:
+      serviceAccountName: livekit-keygen
+      restartPolicy: OnFailure
+      containers:
+        - name: keygen
+          image: alpine/k8s:1.31.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              if kubectl get secret livekit-keys -n matrix >/dev/null 2>&1; then
+                echo "Secret livekit-keys déjà présent — rien à faire."
+                exit 0
+              fi
+              KEY="API$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
+              SECRET="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
+              kubectl create secret generic livekit-keys -n matrix \
+                --from-literal=LIVEKIT_KEYS="$KEY: $SECRET" \
+                --from-literal=LIVEKIT_KEY="$KEY" \
+                --from-literal=LIVEKIT_SECRET="$SECRET"
+              echo "Secret livekit-keys généré."
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+# ConfigMap — configuration LiveKit (SFU)
+# Média exposé via un Service LoadBalancer dédié (MetalLB) :
+#   - UDP-mux à port unique 7882 (média WebRTC)
+#   - TCP 7881 (repli ICE/TCP)
+# use_external_ip : LiveKit découvre son IP publique via STUN pour les
+# candidats ICE. Si l'IP annoncée est incorrecte (NAT particulier), figer
+# rtc.node_ip avec l'IP du LoadBalancer.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-config
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  livekit.yaml: |
+    port: 7880
+    bind_addresses:
+      - "0.0.0.0"
+    rtc:
+      tcp_port: 7881
+      udp_port: 7882
+      use_external_ip: true
+    logging:
+      level: warn
+---
+# Deployment — LiveKit Server (SFU)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: livekit
+  template:
+    metadata:
+      labels:
+        app: livekit
+    spec:
+      containers:
+        - name: livekit
+          image: livekit/livekit-server:v1.12.0
+          args:
+            - --config
+            - /etc/livekit/livekit.yaml
+          env:
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-keys
+                  key: LIVEKIT_KEYS
+          ports:
+            - containerPort: 7880
+              name: http
+              protocol: TCP
+            - containerPort: 7881
+              name: rtc-tcp
+              protocol: TCP
+            - containerPort: 7882
+              name: rtc-udp
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7880
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7880
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-config
+---
+# Service — LiveKit signaling (backend de l'Ingress HTTPS, WS /rtc)
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  type: ClusterIP
+  selector:
+    app: livekit
+  ports:
+    - name: http
+      port: 7880
+      targetPort: 7880
+      protocol: TCP
+---
+# Service LoadBalancer (MetalLB) — média WebRTC LiveKit
+#   - UDP 7882 (média)
+#   - TCP 7881 (repli ICE/TCP)
+# externalTrafficPolicy=Local : préserve l'IP source du client (recommandé WebRTC).
+# Pour figer l'IP : décommenter loadBalancerIP ou utiliser l'annotation MetalLB.
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-media
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # metallb.universe.tf/loadBalancerIPs: "192.168.x.y"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ipFamilyPolicy: PreferDualStack
+  ipFamilies:
+    - IPv4
+    - IPv6
+  selector:
+    app: livekit
+  ports:
+    - name: rtc-tcp
+      port: 7881
+      targetPort: 7881
+      protocol: TCP
+    - name: rtc-udp
+      port: 7882
+      targetPort: 7882
+      protocol: UDP
+---
+# Deployment — lk-jwt-service (MatrixRTC Authorization Service)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lk-jwt-service
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lk-jwt-service
+  template:
+    metadata:
+      labels:
+        app: lk-jwt-service
+    spec:
+      containers:
+        - name: lk-jwt-service
+          image: ghcr.io/element-hq/lk-jwt-service:0.4.4
+          env:
+            # URL WebSocket publique du SFU renvoyée aux clients
+            - name: LIVEKIT_URL
+              value: "wss://matrix-rtc.ffd.link"
+            # Homeservers autorisés à créer des salles RTC
+            - name: LIVEKIT_FULL_ACCESS_HOMESERVERS
+              value: "ffd.link"
+            - name: LIVEKIT_JWT_BIND
+              value: ":8080"
+            - name: LIVEKIT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-keys
+                  key: LIVEKIT_KEY
+            - name: LIVEKIT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-keys
+                  key: LIVEKIT_SECRET
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+# Service — lk-jwt-service
+apiVersion: v1
+kind: Service
+metadata:
+  name: lk-jwt-service
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: lk-jwt-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# Ingress — matrix-rtc.ffd.link
+#   /sfu/*  -> lk-jwt-service (émission des JWT)
+#   /       -> LiveKit (signaling WebSocket /rtc)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: matrix-rtc
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: matrix-rtc.ffd.link
+      http:
+        paths:
+          - path: /sfu
+            pathType: Prefix
+            backend:
+              service:
+                name: lk-jwt-service
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: livekit
+                port:
+                  number: 7880
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - matrix-rtc.ffd.link

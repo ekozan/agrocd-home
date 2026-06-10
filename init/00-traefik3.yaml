@@ -16,7 +16,7 @@ spec:
     helm:
       releaseName: traefik3
       valuesObject:
-        service: 
+        service:
           ipFamilyPolicy: PreferDualStack
         ingressClass:  # @schema additionalProperties: false
           enabled: true
