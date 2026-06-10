@@ -40,6 +40,7 @@ spec:
           [global.well_known]
           client = "https://matrix.ffd.link"
           server = "matrix.ffd.link:443"
+          rtc_transports = [{type = "livekit", livekit_service_url = "https://matrix-rtc.ffd.link"}]
 
           [[global.identity_provider]]
           id = "zitadel"

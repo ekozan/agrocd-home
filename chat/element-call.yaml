@@ -1,0 +1,282 @@
+---
+# ExternalSecret — clé/secret d'API LiveKit (partagés SFU <-> lk-jwt-service)
+# À renseigner dans OpenBao : kubernetes/matrix/livekit -> { api_key, api_secret }
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: livekit-keys
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: livekit-keys
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        # Format attendu par livekit-server : "<api_key>: <api_secret>"
+        LIVEKIT_KEYS: "{{ .api_key }}: {{ .api_secret }}"
+        LIVEKIT_KEY: "{{ .api_key }}"
+        LIVEKIT_SECRET: "{{ .api_secret }}"
+  data:
+    - secretKey: api_key
+      remoteRef:
+        key: kubernetes/matrix/livekit
+        property: api_key
+    - secretKey: api_secret
+      remoteRef:
+        key: kubernetes/matrix/livekit
+        property: api_secret
+---
+# ConfigMap — configuration LiveKit (SFU)
+# Mode UDP-mux à port unique (7000) exposé via Traefik (entrypoint livekit-udp).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-config
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  livekit.yaml: |
+    port: 7880
+    bind_addresses:
+      - "0.0.0.0"
+    rtc:
+      tcp_port: 7881
+      udp_port: 7000
+      use_external_ip: true
+    logging:
+      level: warn
+---
+# Deployment — LiveKit Server (SFU)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: livekit
+  template:
+    metadata:
+      labels:
+        app: livekit
+    spec:
+      containers:
+        - name: livekit
+          image: livekit/livekit-server:v1.12.0
+          args:
+            - --config
+            - /etc/livekit/livekit.yaml
+          env:
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-keys
+                  key: LIVEKIT_KEYS
+          ports:
+            - containerPort: 7880
+              name: http
+              protocol: TCP
+            - containerPort: 7881
+              name: rtc-tcp
+              protocol: TCP
+            - containerPort: 7000
+              name: rtc-udp
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7880
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7880
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-config
+---
+# Service — LiveKit (HTTP/WS signaling + média UDP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: livekit
+  ports:
+    - name: http
+      port: 7880
+      targetPort: 7880
+      protocol: TCP
+    - name: rtc-tcp
+      port: 7881
+      targetPort: 7881
+      protocol: TCP
+    - name: rtc-udp
+      port: 7000
+      targetPort: 7000
+      protocol: UDP
+---
+# Deployment — lk-jwt-service (MatrixRTC Authorization Service)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lk-jwt-service
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lk-jwt-service
+  template:
+    metadata:
+      labels:
+        app: lk-jwt-service
+    spec:
+      containers:
+        - name: lk-jwt-service
+          image: ghcr.io/element-hq/lk-jwt-service:0.4.4
+          env:
+            # URL WebSocket publique du SFU renvoyée aux clients
+            - name: LIVEKIT_URL
+              value: "wss://matrix-rtc.ffd.link"
+            # Homeservers autorisés à créer des salles RTC
+            - name: LIVEKIT_FULL_ACCESS_HOMESERVERS
+              value: "ffd.link"
+            - name: LIVEKIT_JWT_BIND
+              value: ":8080"
+            - name: LIVEKIT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-keys
+                  key: LIVEKIT_KEY
+            - name: LIVEKIT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-keys
+                  key: LIVEKIT_SECRET
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+# Service — lk-jwt-service
+apiVersion: v1
+kind: Service
+metadata:
+  name: lk-jwt-service
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: lk-jwt-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# Ingress — matrix-rtc.ffd.link
+#   /sfu/*  -> lk-jwt-service (émission des JWT)
+#   /       -> LiveKit (signaling WebSocket /rtc)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: matrix-rtc
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: matrix-rtc.ffd.link
+      http:
+        paths:
+          - path: /sfu
+            pathType: Prefix
+            backend:
+              service:
+                name: lk-jwt-service
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: livekit
+                port:
+                  number: 7880
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - matrix-rtc.ffd.link
+---
+# IngressRouteUDP — média WebRTC LiveKit (UDP 7000)
+# S'appuie sur l'entrypoint Traefik "livekit-udp" (cf. init/00-traefik3.yaml)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: livekit-udp
+  namespace: matrix
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  entryPoints:
+    - livekit-udp
+  routes:
+    - services:
+        - name: livekit
+          port: 7000
