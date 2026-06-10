@@ -339,7 +339,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: livekit-server
+                name: livekit-service
                 port:
                   number: 7880
   tls:
