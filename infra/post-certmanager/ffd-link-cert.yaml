@@ -1,0 +1,27 @@
+---
+# Wildcard *.ffd.link émis par Let's Encrypt (ClusterIssuer "prod", DNS-01 OVH).
+# Le secret ffd-link-tls est répliqué dans les autres namespaces par
+# kubernetes-replicator (déjà déployé : infra/01 Kubernetereplicator.yaml).
+#
+# NB sécurité : ".*" réplique la clé privée dans TOUS les namespaces.
+# Pour restreindre, remplacer par la liste explicite, ex :
+#   replicator.v1.mittwald.de/replicate-to: "matrix,coder,gitea,zitadel,kube-system"
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ffd-link
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  secretName: ffd-link-tls
+  issuerRef:
+    name: prod
+    kind: ClusterIssuer
+  commonName: "*.ffd.link"
+  dnsNames:
+    - "ffd.link"
+    - "*.ffd.link"
+  secretTemplate:
+    annotations:
+      replicator.v1.mittwald.de/replicate-to: ".*"
