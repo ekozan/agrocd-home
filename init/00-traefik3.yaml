@@ -42,7 +42,7 @@ spec:
                 optional: true
         ingressClass:  # @schema additionalProperties: false
           enabled: true
-          isDefaultClass: false
+          isDefaultClass: true
           name: "traefik3"
         experimental:
           abortOnPluginFailure: false

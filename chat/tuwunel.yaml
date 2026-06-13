@@ -185,7 +185,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
-  ingressClassName: traefik
+  ingressClassName: traefik3
   rules:
     - host: matrix.ffd.link
       http:
@@ -213,7 +213,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
-  ingressClassName: traefik
+  ingressClassName: traefik3
   rules:
     - host: ffd.link
       http:
