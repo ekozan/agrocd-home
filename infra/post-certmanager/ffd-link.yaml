@@ -1,0 +1,22 @@
+---
+# Wildcard *.ffd.link émis par Let's Encrypt (ClusterIssuer "prod", DNS-01 OVH).
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ffd-link
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  secretName: ffd-link-tls
+  issuerRef:
+    name: prod
+    kind: ClusterIssuer
+  commonName: "*.ffd.link"
+  dnsNames:
+    - "ffd.link"
+    - "*.ffd.link"
+  secretTemplate:
+    annotations:
+      replicator.v1.mittwald.de/replicate-to: ".*"
