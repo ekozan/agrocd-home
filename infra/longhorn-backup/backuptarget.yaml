@@ -1,0 +1,20 @@
+# BackupTarget Longhorn par defaut (Longhorn >= 1.6).
+# Longhorn cree automatiquement une ressource "default" ; ArgoCD l'adopte et la
+# pilote de maniere declarative ici.
+#
+# Format de l'URL S3 : s3://<bucket>@<region>/<prefixe-optionnel>
+#   - La region est OBLIGATOIRE meme pour MinIO/TrueNAS : utiliser us-east-1.
+#   - L'endpoint reel (MinIO/TrueNAS) est fourni via la cle AWS_ENDPOINTS du
+#     secret credentialSecret (cf. infra/post-externalsecrets/longhorn-backup-s3.yaml).
+#
+# >>> Adapter le nom du bucket ci-dessous a votre infrastructure <<<
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: s3://longhorn@us-east-1/
+  credentialSecret: longhorn-backup-s3
+  # Intervalle de scrutation du backupstore pour detecter les backups externes.
+  pollInterval: 5m0s

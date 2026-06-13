@@ -1,0 +1,51 @@
+# RecurringJobs Longhorn : snapshots + backups planifies.
+#
+# Le groupe special "default" s'applique automatiquement a TOUT volume qui n'est
+# rattache a aucun autre RecurringJob/groupe. Tous les PV du cluster sont donc
+# couverts sans annotation supplementaire.
+#
+# Pour exclure un volume : lui ajouter le label
+#   recurring-job.longhorn.io/source: enabled
+# et l'assigner explicitement a d'autres groupes.
+---
+# Snapshots locaux frequents (restauration rapide, ne quitte pas le cluster).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 1 * * *"        # tous les jours a 01:00
+  task: snapshot
+  groups:
+    - default
+  retain: 7                # conserve 7 snapshots
+  concurrency: 2
+---
+# Backups quotidiens vers le backupstore S3.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 2 * * *"        # tous les jours a 02:00
+  task: backup
+  groups:
+    - default
+  retain: 14               # conserve 14 backups quotidiens
+  concurrency: 2
+---
+# Backup hebdomadaire a retention longue (retention mensuelle).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-weekly
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * 0"        # tous les dimanches a 03:00
+  task: backup
+  groups:
+    - default
+  retain: 8                # conserve 8 backups hebdomadaires (~2 mois)
+  concurrency: 2

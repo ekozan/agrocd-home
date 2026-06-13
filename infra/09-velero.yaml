@@ -1,0 +1,82 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      # Le chart embarque des CRDs volumineuses : evite l'erreur de taille
+      # d'annotation last-applied-configuration lors du sync.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+  source:
+    chart: velero
+    repoURL: https://vmware-tanzu.github.io/helm-charts
+    targetRevision: 12.0.2
+    helm:
+      releaseName: velero
+      valuesObject:
+        # --- Plugin object store AWS/S3 (charge en initContainer) ---
+        initContainers:
+          - name: velero-plugin-for-aws
+            image: velero/velero-plugin-for-aws:v1.13.1
+            imagePullPolicy: IfNotPresent
+            volumeMounts:
+              - mountPath: /target
+                name: plugins
+
+        # --- Credentials S3 fournis par ExternalSecret/OpenBao ---
+        # (cf. infra/post-externalsecrets/velero-s3.yaml ; cle "cloud")
+        credentials:
+          existingSecret: velero-cloud-credentials
+
+        configuration:
+          # Sauvegarde par defaut les donnees de TOUS les volumes via Kopia
+          # (node-agent), independamment de Longhorn -> chemin de DR autonome.
+          # Mettre a false pour ne sauvegarder que les ressources K8s et
+          # deleguer les donnees de volumes a Longhorn.
+          defaultVolumesToFsBackup: true
+
+          backupStorageLocation:
+            - name: default
+              provider: aws
+              # >>> Adapter le nom du bucket <<<
+              bucket: velero
+              default: true
+              config:
+                region: us-east-1
+                # Endpoint S3 compatible (MinIO/TrueNAS). >>> A adapter <<<
+                # Pour AWS S3 natif : supprimer s3Url et s3ForcePathStyle.
+                s3ForcePathStyle: "true"
+                s3Url: https://s3.ffd.link:9000
+
+        # node-agent (DaemonSet) requis pour les backups filesystem Kopia.
+        deployNodeAgent: true
+
+        # --- Backups planifies ---
+        schedules:
+          # Sauvegarde quotidienne complete (toutes ressources + volumes).
+          daily-full:
+            disabled: false
+            schedule: "0 4 * * *"      # tous les jours a 04:00
+            useOwnerReferencesInBackup: false
+            template:
+              ttl: 720h                # retention 30 jours
+              storageLocation: default
+              snapshotVolumes: true
+              defaultVolumesToFsBackup: true
+              # Exclut les namespaces ephemeres/systemes sans etat utile.
+              excludedNamespaces:
+                - kube-system

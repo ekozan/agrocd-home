@@ -1,0 +1,33 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: longhorn-backup-s3
+  # Le namespace longhorn-system est gere par Rancher (Longhorn n'est PAS
+  # installe par ce repo) ; on se contente d'y injecter le secret de backup.
+  namespace: longhorn-system
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    # Ce secret est reference par le champ spec.credentialSecret du BackupTarget
+    # Longhorn (cf. infra/longhorn-backup/backuptarget.yaml).
+    name: longhorn-backup-s3
+    creationPolicy: Owner
+  data:
+    # Longhorn impose ces noms de cles exacts pour un backupstore S3.
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef:
+        key: kubernetes/longhorn/backup-s3
+        property: access_key
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef:
+        key: kubernetes/longhorn/backup-s3
+        property: secret_key
+    # Endpoint S3 (ex: https://s3.ffd.link:9000 pour MinIO/TrueNAS).
+    # A omettre / laisser vide pour AWS S3 natif.
+    - secretKey: AWS_ENDPOINTS
+      remoteRef:
+        key: kubernetes/longhorn/backup-s3
+        property: endpoints

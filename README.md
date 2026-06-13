@@ -13,7 +13,8 @@ Kubernetes Cluster
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
-└── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+└── Backup          → Longhorn (volumes → S3) + Velero (état cluster → S3)
 ```
 
 ### Domaines exposés
@@ -60,6 +61,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
+- Credentials S3 pour les backups : `kubernetes/longhorn/backup-s3` et `kubernetes/velero/s3` (cf. [docs/backup-restore.md](docs/backup-restore.md))
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -99,6 +101,8 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `5` | Zitadel (IdP) |
 | `6` | Gitea |
 | `7` | Gitea Act Runner |
+| `8` | Longhorn Backup (BackupTarget S3 + RecurringJobs) |
+| `9` | Velero (backup état cluster → S3) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -129,7 +133,10 @@ agrocd-home/
 │   ├── 04-*.yaml             # DB Zitadel + TrueNAS storage
 │   ├── 05-zitadel.yaml
 │   ├── 06-gitea.yaml
-│   └── 07-gitea-act-runner.yaml
+│   ├── 07-gitea-act-runner.yaml
+│   ├── 08-longhorn-backup.yaml  # BackupTarget S3 + RecurringJobs (→ ./infra/longhorn-backup)
+│   ├── 09-velero.yaml           # Velero (backup état cluster → S3)
+│   └── longhorn-backup/         # BackupTarget + RecurringJobs Longhorn
 │
 ├── dev/
 │   ├── coder.yaml
@@ -164,11 +171,34 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+| Velero | `vmware-tanzu.github.io/helm-charts` | 12.0.2 | velero |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
+
+---
+
+## Stratégie de backup
+
+Sauvegarde complète du cluster en **trois couches complémentaires** vers S3 :
+
+| Couche | Quoi | Outil | Backend |
+|--------|------|-------|---------|
+| 1 | Données des volumes (PV) | Longhorn `BackupTarget` + `RecurringJob` | S3 |
+| 2 | État complet du cluster (ressources K8s + volumes via Kopia) | Velero | S3 |
+| 3 | État déclaratif + snapshots etcd k3s | Git / ArgoCD | Git / S3 |
+
+Les credentials S3 sont injectés via External-Secrets depuis OpenBao
+(secrets `kubernetes/longhorn/backup-s3` et `kubernetes/velero/s3`).
+
+> 📖 Procédures détaillées (provisioning des secrets, planification, restauration,
+> disaster recovery) : **[docs/backup-restore.md](docs/backup-restore.md)**.
+>
+> ⚠️ Avant la première synchro : provisionner les secrets dans OpenBao et adapter
+> le nom des buckets / l'endpoint S3 dans `infra/longhorn-backup/backuptarget.yaml`
+> et `infra/09-velero.yaml`.
 
 ---
 
