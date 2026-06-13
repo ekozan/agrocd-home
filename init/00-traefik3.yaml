@@ -22,6 +22,9 @@ spec:
           enabled: true
           isDefaultClass: false
           name: "traefik3"
+        providers:               
+          kubernetesIngress:
+            ingressClass: traefik3
         experimental:
           abortOnPluginFailure: false
           fastProxy:
