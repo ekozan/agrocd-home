@@ -131,6 +131,7 @@ agrocd-home/
 │   ├── 04-postgres.yaml      # App → ./infra/postgres (instance pg-main)
 │   ├── postgres/             # Cluster pg-main + rôles + bases (Database CRD)
 │   │   ├── 00-secrets-init.yaml   # Job : génère 1 secret/mot de passe par rôle
+│   │   ├── 05-certificate.yaml    # Cert serveur TLS (cert-manager my-ca-issuer)
 │   │   ├── 10-cluster.yaml        # Cluster CNPG pg-main
 │   │   ├── 20-databases.yaml      # Bases zitadel/coder/gitea/litellm
 │   │   └── migration/             # Jobs pg_dump/pg_restore (NON synchro ArgoCD)
@@ -202,8 +203,12 @@ namespace database    → Cluster pg-main
   généré en cluster par le Job `pg-secret-init`, puis répliqué
   (kubernetes-replicator) vers le namespace de chaque application. Le superuser
   `postgres` est géré par CNPG (`pg-main-superuser`).
-- **TLS** : activé par défaut par CNPG (CA interne) → couvre le `sslmode=require`
-  attendu par Zitadel.
+- **TLS** : le certificat serveur de `pg-main` est émis par **cert-manager**
+  (`my-ca-issuer`, voir `infra/postgres/05-certificate.yaml`) et injecté via
+  `spec.certificates`. Comme cette CA interne est déjà diffusée partout par
+  trust-manager (`local-ca-bundle`), les applications peuvent vérifier le
+  serveur en `sslmode=verify-full`. Les certificats client/réplication restent
+  gérés par CNPG.
 - **Service** d'accès en lecture/écriture : `pg-main-rw.database.svc:5432`.
 
 ### Phase 1 — Mise en place (déployée par ArgoCD)
@@ -234,7 +239,8 @@ config des applications ne sont pas modifiées.**
 ## Gestion des certificats TLS
 
 - **Let's Encrypt (ACME)** via le webhook OVH DNS-01 pour les domaines publics
-- **CA auto-signée** pour la communication interne (PostgreSQL, services internes)
+- **CA auto-signée** pour la communication interne (PostgreSQL `pg-main` via
+  `my-ca-issuer`, services internes)
 - Trust-Manager distribue automatiquement le bundle CA dans tous les namespaces
 
 ---

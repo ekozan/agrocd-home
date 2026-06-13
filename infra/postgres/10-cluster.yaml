@@ -17,6 +17,14 @@ spec:
   # Utilisé par l'admin Zitadel et par les Jobs de migration.
   enableSuperuserAccess: true
 
+  # Certificat serveur TLS émis par cert-manager (my-ca-issuer, voir
+  # 05-certificate.yaml) plutôt que par la CA auto-signée interne de CNPG.
+  # Le même Secret fournit tls.crt/tls.key (serveur) et ca.crt (CA).
+  # Les certificats client/réplication restent gérés par CNPG.
+  certificates:
+    serverCASecret: pg-main-server-cert
+    serverTLSSecret: pg-main-server-cert
+
   storage:
     size: 10Gi
     storageClass: longhorn
