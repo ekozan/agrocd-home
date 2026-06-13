@@ -132,6 +132,7 @@ agrocd-home/
 │   ├── postgres/             # Cluster pg-main + rôles + bases (Database CRD)
 │   │   ├── 00-secrets-init.yaml   # Job : génère 1 secret/mot de passe par rôle
 │   │   ├── 05-certificate.yaml    # Cert serveur TLS (cert-manager my-ca-issuer)
+│   │   ├── 06-ca-bundle.yaml      # ConfigMap pg-main-ca (CA pour verify-full)
 │   │   ├── 10-cluster.yaml        # Cluster CNPG pg-main
 │   │   ├── 20-databases.yaml      # Bases zitadel/coder/gitea/litellm
 │   │   └── migration/             # Jobs pg_dump/pg_restore (NON synchro ArgoCD)
@@ -205,10 +206,26 @@ namespace database    → Cluster pg-main
   `postgres` est géré par CNPG (`pg-main-superuser`).
 - **TLS** : le certificat serveur de `pg-main` est émis par **cert-manager**
   (`my-ca-issuer`, voir `infra/postgres/05-certificate.yaml`) et injecté via
-  `spec.certificates`. Comme cette CA interne est déjà diffusée partout par
-  trust-manager (`local-ca-bundle`), les applications peuvent vérifier le
-  serveur en `sslmode=verify-full`. Les certificats client/réplication restent
-  gérés par CNPG.
+  `spec.certificates`. Les certificats client/réplication restent gérés par CNPG.
+- **Vérification côté client** : trust-manager publie la CA interne **seule**
+  dans un ConfigMap `pg-main-ca` (clé `ca.crt`, voir
+  `infra/postgres/06-ca-bundle.yaml`) présent dans chaque namespace. Une appli
+  le monte en fichier et l'utilise en `sslrootcert` pour vérifier le serveur :
+
+  ```
+  host=pg-main-rw.database.svc.cluster.local sslmode=verify-full
+  sslrootcert=/etc/pg-ca/ca.crt
+  ```
+  ```yaml
+  # extrait pod : monter la CA
+  volumes:
+    - name: pg-ca
+      configMap: { name: pg-main-ca }
+  volumeMounts:
+    - name: pg-ca
+      mountPath: /etc/pg-ca
+      readOnly: true
+  ```
 - **Service** d'accès en lecture/écriture : `pg-main-rw.database.svc:5432`.
 
 ### Phase 1 — Mise en place (déployée par ArgoCD)
