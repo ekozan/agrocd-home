@@ -163,6 +163,70 @@ non présent dans Git.
 
 ---
 
+## 5bis. Interaction avec ArgoCD lors d'un restore
+
+ArgoCD ne restaure **pas les données**, seulement la « forme » déclarative
+(Deployments, Services, releases Helm…). Les données reviennent par
+Velero/Longhorn. Le piège : avec `selfHeal` + `prune` actifs, ArgoCD se bat
+contre un restore Velero.
+
+**Règle d'or : Velero d'abord (les données), ArgoCD ensuite (la forme).**
+
+### Neutraliser ArgoCD pendant un restore
+
+```bash
+# Désactiver l'auto-sync d'une app le temps de la restauration
+argocd app set <app> --sync-policy none
+# ou en patchant le live (le champ automated reste dans Git)
+kubectl -n argocd patch application <app> --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":null}}}'
+```
+
+Puis on rétablit en re-syncant depuis Git (le bloc `automated` y est toujours).
+
+### Ordre recommandé (DR complet)
+
+```
+1. Cluster + Rancher/Longhorn + ArgoCD réinstallés
+2. ArgoCD : auto-sync NON lancé (ou selfHeal/prune désactivés)
+3. Restaurer OpenBao (son PV) — ou injecter velero-cloud-credentials à la main
+4. velero restore  → données de volumes (Kopia) + état runtime
+5. Réactiver l'auto-sync ArgoCD → il adopte l'existant, complète depuis Git
+```
+
+> ⚠️ Chicken-and-egg : Velero a besoin du secret `velero-cloud-credentials`,
+> lui-même produit par External-Secrets ← OpenBao. En DR pur, injecter ce
+> secret S3 **à la main** d'abord, restaurer, puis laisser OpenBao reprendre.
+
+### Protection des PVC contre le prune (`Prune=false`)
+
+Pour éviter qu'une suppression accidentelle d'app dans le repo ne fasse pruner
+un volume de données, les PVC **suivis par ArgoCD** portent l'annotation :
+
+```yaml
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+```
+
+| PVC | Où | Protégé |
+|-----|-----|---------|
+| Gitea (données partagées) | `infra/06 gitea.yaml` → `persistence.annotations` | ✅ |
+| Tuwunel `tuwunel-data` / `tuwunel-media` | `chat/tuwunel.yaml` | ✅ |
+| PostgreSQL Zitadel / Coder (bitnami) | `volumeClaimTemplate` du StatefulSet | déjà sûr* |
+
+> \* Les PVC issus d'un `volumeClaimTemplate` ne sont **pas** suivis par ArgoCD
+> (créés par le contrôleur StatefulSet) : ils survivent déjà au prune ArgoCD
+> et à la suppression du StatefulSet (rétention par défaut). On n'y ajoute donc
+> pas l'annotation — `volumeClaimTemplates` est un champ **immuable** dont la
+> modification casserait le sync.
+>
+> Pour aussi protéger un PVC contre la suppression en cascade lors d'un
+> `delete` de l'Application : ajouter `Delete=false` (ex:
+> `Prune=false,Delete=false`).
+
+---
+
 ## 6. Snapshots etcd k3s (couche 3 — hors GitOps)
 
 L'état du control-plane (etcd) n'est pas dans ce repo. k3s sait en faire des

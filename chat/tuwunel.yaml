@@ -68,6 +68,8 @@ metadata:
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Volume protege contre le prune ArgoCD (les donnees survivent au retrait de l'app).
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteOnce
@@ -84,6 +86,8 @@ metadata:
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Volume protege contre le prune ArgoCD (les donnees survivent au retrait de l'app).
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteMany
