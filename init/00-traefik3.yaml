@@ -35,7 +35,7 @@ spec:
               version: "v0.20.1"
   destination:
     server: "https://kubernetes.default.svc"
-    namespace: kube-system
+    namespace: traefik
   # Sync policy
   syncPolicy:
     syncOptions:
