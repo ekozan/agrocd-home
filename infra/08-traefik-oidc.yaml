@@ -1,0 +1,134 @@
+---
+# =============================================================================
+# Protection des Ingress via Traefik
+#   - netbird-only : restriction réseau VPN (IPv4 + IPv6)
+#   - oidc-auth    : login Zitadel (tout utilisateur authentifié)
+#   - oidc-admins  : login Zitadel + appartenance au groupe (claim "groups")
+#
+# Usage sur un Ingress (annotation, middleware cross-namespace) :
+#   traefik.ingress.kubernetes.io/router.middlewares: kube-system-oidc-admins@kubernetescrd
+# Cumul possible (réseau PUIS identité) :
+#   ...: kube-system-netbird-only@kubernetescrd,kube-system-oidc-admins@kubernetescrd
+# =============================================================================
+#
+# Secret OIDC (client Zitadel + clé de chiffrement des cookies de session).
+# À renseigner dans OpenBao : kubernetes/traefik/oidc -> { client_id, client_secret, cookie_secret }
+#   - cookie_secret : chaîne aléatoire >= 32 caractères
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: traefik-oidc
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: traefik-oidc
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        OIDC_CLIENT_ID: "{{ .client_id }}"
+        OIDC_CLIENT_SECRET: "{{ .client_secret }}"
+        OIDC_COOKIE_SECRET: "{{ .cookie_secret }}"
+  data:
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/traefik/oidc
+        property: client_id
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/traefik/oidc
+        property: client_secret
+    - secretKey: cookie_secret
+      remoteRef:
+        key: kubernetes/traefik/oidc
+        property: cookie_secret
+---
+# -----------------------------------------------------------------------------
+# CAS 1 — VPN only : n'autorise que les pairs NetBird (IPv4 + IPv6).
+# Adapter les plages à TON réseau NetBird (visibles dans le dashboard / IP des peers).
+# -----------------------------------------------------------------------------
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: netbird-only
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  ipAllowList:
+    sourceRange:
+      - "100.64.0.0/10"            # plage IPv4 par défaut des pairs NetBird
+      - "fd00:ffff::/48"           # ⚠️ PLACEHOLDER : remplacer par TA plage IPv6 NetBird (ULA)
+    # Si Traefik est derrière un autre proxy, décommenter pour lire la vraie IP source :
+    # ipStrategy:
+    #   depth: 1
+---
+# -----------------------------------------------------------------------------
+# CAS 2a — Login Zitadel, tout utilisateur authentifié (pas de contrôle de groupe).
+# -----------------------------------------------------------------------------
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oidc-auth
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  plugin:
+    traefik-oidc-auth:
+      Secret: "${OIDC_COOKIE_SECRET}"        # chiffrement du cookie de session (env Traefik)
+      Provider:
+        Url: "https://idp.ffd.link"          # issuer Zitadel
+        ClientId: "${OIDC_CLIENT_ID}"
+        ClientSecret: "${OIDC_CLIENT_SECRET}"
+      Scopes: ["openid", "profile", "email"]
+      # Les rôles "groups" sont une liste plate ajoutée par Zitadel ; si elle n'est
+      # présente que sur le userinfo, ce flag les fusionne dans les claims du token :
+      UseClaimsFromUserInfo: true
+      # Propage l'identité à l'app en amont :
+      Headers:
+        MapClaims:
+          - Claim: "preferred_username"
+            Header: "X-Auth-User"
+          - Claim: "groups"
+            Header: "X-Auth-Groups"
+---
+# -----------------------------------------------------------------------------
+# CAS 2b — Login Zitadel + vérification de groupe (claim "groups" contient "admin").
+# Dupliquer ce middleware par groupe (oidc-media, oidc-infra…) en changeant AnyOf.
+#   AnyOf = au moins un des groupes ;  AllOf = tous les groupes requis.
+# -----------------------------------------------------------------------------
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oidc-admins
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  plugin:
+    traefik-oidc-auth:
+      Secret: "${OIDC_COOKIE_SECRET}"
+      Provider:
+        Url: "https://idp.ffd.link"
+        ClientId: "${OIDC_CLIENT_ID}"
+        ClientSecret: "${OIDC_CLIENT_SECRET}"
+      Scopes: ["openid", "profile", "email"]
+      UseClaimsFromUserInfo: true
+      Authorization:
+        AssertClaims:
+          - Name: "groups"                   # liste plate de rôles Zitadel
+            AnyOf: ["admin"]
+      Headers:
+        MapClaims:
+          - Claim: "preferred_username"
+            Header: "X-Auth-User"
+          - Claim: "groups"
+            Header: "X-Auth-Groups"

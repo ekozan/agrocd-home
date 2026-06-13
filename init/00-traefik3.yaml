@@ -18,6 +18,28 @@ spec:
       valuesObject:
         service:
           ipFamilyPolicy: PreferDualStack
+        # Secrets OIDC injectés au plugin traefik-oidc-auth via ${OIDC_*}.
+        # optional=true : si le Secret traefik-oidc n'existe pas encore, Traefik
+        # démarre quand même (les middlewares OIDC seront simplement inopérants).
+        env:
+          - name: OIDC_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: traefik-oidc
+                key: OIDC_CLIENT_ID
+                optional: true
+          - name: OIDC_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: traefik-oidc
+                key: OIDC_CLIENT_SECRET
+                optional: true
+          - name: OIDC_COOKIE_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: traefik-oidc
+                key: OIDC_COOKIE_SECRET
+                optional: true
         ingressClass:  # @schema additionalProperties: false
           enabled: true
           isDefaultClass: false
