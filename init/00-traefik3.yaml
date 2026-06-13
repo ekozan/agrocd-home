@@ -17,7 +17,9 @@ spec:
       releaseName: traefik3
       valuesObject:
         service:
-          ipFamilyPolicy: PreferDualStack
+            spec:
+              type: LoadBalancer
+              ipFamilyPolicy: PreferDualStack
         ingressClass:  # @schema additionalProperties: false
           enabled: true
           isDefaultClass: false
