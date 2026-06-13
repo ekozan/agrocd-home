@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: cnpg-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      # Les CRD CloudNativePG sont volumineuses : Server-Side Apply évite
+      # l'erreur "metadata.annotations: Too long" du last-applied-configuration.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+  source:
+    chart: cloudnative-pg
+    repoURL: https://cloudnative-pg.github.io/charts
+    targetRevision: 0.28.3
+    helm:
+      releaseName: cnpg
+      valuesObject:
+        crds:
+          create: true
+        config:
+          clusterWide: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 256Mi

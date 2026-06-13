@@ -1,0 +1,60 @@
+# Bases applicatives déclaratives dans le Cluster pg-main.
+# Chaque base est détenue par le rôle homonyme (managed.roles du Cluster).
+# databaseReclaimPolicy=retain : supprimer le manifeste ne DROP pas la base
+# (sécurité ; suppression manuelle requise).
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: zitadel
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: zitadel
+  owner: zitadel
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: coder
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: coder
+  owner: coder
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: gitea
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: gitea
+  owner: gitea
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: litellm
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: litellm
+  owner: litellm
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain

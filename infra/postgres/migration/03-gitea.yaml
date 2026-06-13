@@ -1,0 +1,39 @@
+# Migration Gitea : gitea-postgresql.gitea.svc (sous-chart Bitnami) -> pg-main / base gitea.
+# ⚠️ Vérifier le nom du service et du secret du sous-chart (kubectl -n gitea get svc,secret).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-gitea
+  namespace: gitea
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/cloudnative-pg/postgresql:16
+          env:
+            - name: SRC_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-postgresql
+                  key: password
+            - name: DST_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-db
+                  key: password
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              echo ">> dump source (gitea)"
+              PGPASSWORD="$SRC_PGPASSWORD" pg_dump -Fc --no-owner --no-privileges \
+                "host=gitea-postgresql.gitea.svc user=gitea dbname=gitea sslmode=disable" \
+                > /tmp/gitea.dump
+              echo ">> restore vers pg-main"
+              PGPASSWORD="$DST_PGPASSWORD" pg_restore --no-owner --no-privileges --exit-on-error \
+                -h pg-main-rw.database.svc -U gitea -d gitea /tmp/gitea.dump
+              echo ">> OK"

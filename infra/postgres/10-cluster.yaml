@@ -1,0 +1,60 @@
+# Instance PostgreSQL centralisée (CloudNativePG).
+# Une seule instance héberge toutes les bases applicatives (Database CRD,
+# fichier 20-databases.yaml), chacune avec son rôle propriétaire dédié.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-main
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  primaryUpdateStrategy: unsupervised
+
+  # Secret superuser `postgres` généré par CNPG (pg-main-superuser).
+  # Utilisé par l'admin Zitadel et par les Jobs de migration.
+  enableSuperuserAccess: true
+
+  storage:
+    size: 10Gi
+    storageClass: longhorn
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+
+  # Rôles applicatifs. Mots de passe fournis via les Secrets basic-auth
+  # générés par le Job pg-secret-init (00-secrets-init.yaml). CNPG ne génère
+  # pas de mot de passe pour les rôles managés ; il les applique depuis ces
+  # Secrets (label cnpg.io/reload=true).
+  managed:
+    roles:
+      - name: zitadel
+        ensure: present
+        login: true
+        passwordSecret:
+          name: zitadel-db
+      - name: coder
+        ensure: present
+        login: true
+        passwordSecret:
+          name: coder-db
+      - name: gitea
+        ensure: present
+        login: true
+        passwordSecret:
+          name: gitea-db
+      - name: litellm
+        ensure: present
+        login: true
+        passwordSecret:
+          name: litellm-db
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
