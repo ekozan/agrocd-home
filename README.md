@@ -201,6 +201,26 @@ spec:
           namespace: traefik
 ```
 
+**Administration (CLI)** : pas d'UI web, tout se gère via `cscli` dans le pod LAPI.
+
+```bash
+# Raccourci vers le pod LAPI
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+
+# Alertes et décisions actives
+kubectl -n crowdsec exec "$LAPI" -- cscli alerts list
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions list
+
+# Bloquer / débloquer une IP manuellement
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions add --ip 1.2.3.4 --duration 4h
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions delete --ip 1.2.3.4
+
+# État : bouncers enregistrés, métriques, collections installées
+kubectl -n crowdsec exec "$LAPI" -- cscli bouncers list
+kubectl -n crowdsec exec "$LAPI" -- cscli metrics
+kubectl -n crowdsec exec "$LAPI" -- cscli collections list
+```
+
 ---
 
 ## Gestion des certificats TLS

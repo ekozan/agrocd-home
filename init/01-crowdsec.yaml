@@ -23,10 +23,6 @@ spec:
             data:
               enabled: true
               size: 1Gi
-          # Souscription au CrowdSec Community Blocklist (CTI)
-          env:
-            - name: ENROLL_INSTANCE_NAME
-              value: "agrocd-home"
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
           # Collections de parsers/scénarios installées au démarrage
