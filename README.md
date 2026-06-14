@@ -184,13 +184,17 @@ CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les 
 
 **Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render, mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
 
-**Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
+**Couverture** : le middleware est appliqué à **tous les services exposés** (Tuwunel/Matrix, MatrixRTC, Zitadel, Gitea, Coder), tous migrés sur l'ingressClass `traefik3`. Le middleware vivant dans le namespace `traefik`, les Ingress des autres namespaces le référencent en cross-namespace, ce qui nécessite `providers.kubernetesCRD.allowCrossNamespace: true` (activé dans `init/00-traefik3.yaml`).
+
+**Activer la protection sur un nouveau service** : référencer le middleware dans l'Ingress / IngressRoute (et utiliser la classe `traefik3`).
 
 ```yaml
 # Ingress
 metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik3
 ```
 
 ```yaml

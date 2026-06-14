@@ -32,6 +32,9 @@ spec:
           workspaceProxy: false
           ingress:
             enable: true
+            className: "traefik3"
+            annotations:
+              traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
             host: "coder.ffd.link"
             wildcardHost: "*.coder.ffd.link"
             tls:

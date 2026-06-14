@@ -64,6 +64,9 @@ spec:
                     Mode: require #verify-ca
         ingress:
           enabled: true
+          className: traefik3
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
             - host: idp.ffd.link
               paths:

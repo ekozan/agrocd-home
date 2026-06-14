@@ -29,6 +29,10 @@ spec:
           isDefaultClass: false
           name: "traefik3"
         providers:               
+          kubernetesCRD:
+            # Autorise les Ingress des autres namespaces à référencer le
+            # middleware crowdsec (traefik-crowdsec@kubernetescrd)
+            allowCrossNamespace: true
           kubernetesIngress:
             ingressClass: traefik3
         experimental:
