@@ -18,7 +18,7 @@ spec:
       - CreateNamespace=true  
     automated: 
       prune: true
-      selfHeal: true
+      selfHeal: false
   source:
     chart: coder
     repoURL: https://helm.coder.com/v2
