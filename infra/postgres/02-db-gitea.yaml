@@ -1,5 +1,5 @@
 # Base PostgreSQL pour Gitea.
-# Le rôle propriétaire `gitea` est déclaré dans 10-cluster.yaml
+# Le rôle propriétaire `gitea` est déclaré dans 01-cluster.yaml
 # (spec.managed.roles). Voir infra/postgres/README.md
 apiVersion: postgresql.cnpg.io/v1
 kind: Database

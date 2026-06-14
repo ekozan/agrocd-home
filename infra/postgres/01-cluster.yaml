@@ -1,6 +1,6 @@
 # Instance PostgreSQL centralisée (CloudNativePG).
 # Une seule instance héberge toutes les bases applicatives (Database CRD,
-# fichier 20-databases.yaml), chacune avec son rôle propriétaire dédié.
+# fichiers 02-db-<app>.yaml), chacune avec son rôle propriétaire dédié.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -18,7 +18,7 @@ spec:
   enableSuperuserAccess: true
 
   # Certificat serveur TLS émis par cert-manager (my-ca-issuer, voir
-  # 05-certificate.yaml) plutôt que par la CA auto-signée interne de CNPG.
+  # 00-certificate.yaml) plutôt que par la CA auto-signée interne de CNPG.
   # Le même Secret fournit tls.crt/tls.key (serveur) et ca.crt (CA).
   # Les certificats client/réplication restent gérés par CNPG.
   certificates:

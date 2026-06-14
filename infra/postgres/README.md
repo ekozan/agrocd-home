@@ -8,15 +8,18 @@ avec son **rôle propriétaire**.
 | Fichier | Rôle |
 |---------|------|
 | `00-secrets-init.yaml` | Job de bootstrap : génère 1 Secret `basic-auth` par rôle initial (répliqué vers le namespace de l'app) |
-| `05-certificate.yaml` | Certificat serveur TLS (cert-manager `my-ca-issuer`) |
-| `06-ca-bundle.yaml` | ConfigMap `pg-main-ca` (CA pour `verify-full` côté client) |
-| `10-cluster.yaml` | Cluster `pg-main` + **rôles** (`spec.managed.roles`) |
-| `db-<app>.yaml` | **Une base par application** (CRD `Database`) |
+| `00-certificate.yaml` | Certificat serveur TLS (cert-manager `my-ca-issuer`) |
+| `00-ca-bundle.yaml` | ConfigMap `pg-main-ca` (CA pour `verify-full` côté client) |
+| `01-cluster.yaml` | Cluster `pg-main` + **rôles** (`spec.managed.roles`) |
+| `02-db-<app>.yaml` | **Une base par application** (CRD `Database`) |
 | `migration/` | Jobs `pg_dump`/`pg_restore` one-shot (**non** synchronisés par ArgoCD) |
+
+> Le préfixe numérique des fichiers = la valeur de `argocd.argoproj.io/sync-wave`
+> (0 = secrets + cert + CA, 1 = cluster, 2 = bases).
 
 > Le rôle et la base sont **deux objets distincts** : CNPG n'a pas de CRD `Role`,
 > les rôles sont un sous-champ du `Cluster`. Le rôle vit donc dans
-> `10-cluster.yaml`, la base dans son propre fichier `db-<app>.yaml`.
+> `01-cluster.yaml`, la base dans son propre fichier `02-db-<app>.yaml`.
 
 > ⚠️ L'Application ArgoCD `postgres` est en `directory.recurse: false` : seuls
 > les fichiers `.yaml` **à la racine** de ce dossier sont synchronisés. Garder
@@ -40,7 +43,7 @@ kubectl -n database annotate secret grafana-db \
   replicator.v1.mittwald.de/replicate-to=grafana   # namespace de l'app
 ```
 
-### 2. Déclarer le rôle dans `10-cluster.yaml`
+### 2. Déclarer le rôle dans `01-cluster.yaml`
 
 Ajouter sous `spec.managed.roles` :
 
@@ -52,7 +55,7 @@ Ajouter sous `spec.managed.roles` :
           name: grafana-db
 ```
 
-### 3. Créer le fichier de la base `db-grafana.yaml`
+### 3. Créer le fichier de la base `02-db-grafana.yaml`
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
@@ -81,5 +84,5 @@ base. L'app se connecte via le Secret `grafana-db` sur
 - **User sans nouvelle base** : étape 2 seulement.
 - **Options de rôle** (`managed.roles`) : `superuser`, `createdb`, `createrole`,
   `inRoles: [...]`, `connectionLimit`, `ensure: absent` (suppression).
-- **Supprimer une base** : `ensure: absent` dans `db-<app>.yaml` (protégée par
+- **Supprimer une base** : `ensure: absent` dans `02-db-<app>.yaml` (protégée par
   `databaseReclaimPolicy: retain` → DROP manuel requis).

@@ -132,11 +132,12 @@ agrocd-home/
 │   ├── postgres/             # Cluster pg-main + rôles + bases (Database CRD)
 │   │   ├── README.md              # Guide : ajouter un user/base
 │   │   ├── 00-secrets-init.yaml   # Job : génère 1 secret/mot de passe par rôle
-│   │   ├── 05-certificate.yaml    # Cert serveur TLS (cert-manager my-ca-issuer)
-│   │   ├── 06-ca-bundle.yaml      # ConfigMap pg-main-ca (CA pour verify-full)
-│   │   ├── 10-cluster.yaml        # Cluster CNPG pg-main + rôles managés
-│   │   ├── db-<app>.yaml          # Une base par app (zitadel/coder/gitea/litellm)
+│   │   ├── 00-certificate.yaml    # Cert serveur TLS (cert-manager my-ca-issuer)
+│   │   ├── 00-ca-bundle.yaml      # ConfigMap pg-main-ca (CA pour verify-full)
+│   │   ├── 01-cluster.yaml        # Cluster CNPG pg-main + rôles managés
+│   │   ├── 02-db-<app>.yaml       # Une base par app (zitadel/coder/gitea/litellm)
 │   │   └── migration/             # Jobs pg_dump/pg_restore (NON synchro ArgoCD)
+│   │                              # (préfixe = sync-wave : 0/1/2)
 │   ├── 04-*.yaml             # DB Zitadel (legacy) + TrueNAS storage
 │   ├── 05-zitadel.yaml
 │   ├── 06-gitea.yaml
@@ -206,11 +207,11 @@ namespace database    → Cluster pg-main
   (kubernetes-replicator) vers le namespace de chaque application. Le superuser
   `postgres` est géré par CNPG (`pg-main-superuser`).
 - **TLS** : le certificat serveur de `pg-main` est émis par **cert-manager**
-  (`my-ca-issuer`, voir `infra/postgres/05-certificate.yaml`) et injecté via
+  (`my-ca-issuer`, voir `infra/postgres/00-certificate.yaml`) et injecté via
   `spec.certificates`. Les certificats client/réplication restent gérés par CNPG.
 - **Vérification côté client** : trust-manager publie la CA interne **seule**
   dans un ConfigMap `pg-main-ca` (clé `ca.crt`, voir
-  `infra/postgres/06-ca-bundle.yaml`) présent dans chaque namespace. Une appli
+  `infra/postgres/00-ca-bundle.yaml`) présent dans chaque namespace. Une appli
   le monte en fichier et l'utilise en `sslrootcert` pour vérifier le serveur :
 
   ```
