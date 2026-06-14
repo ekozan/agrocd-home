@@ -71,7 +71,7 @@ metadata:
   annotations:
     # Rejoué après chaque sync, une fois le LAPI déployé ; supprimé si succès
     argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded,BeforeHookCreation
 spec:
   backoffLimit: 5
   ttlSecondsAfterFinished: 600
