@@ -130,11 +130,12 @@ agrocd-home/
 │   ├── 03-cnpg-operator.yaml # Opérateur CloudNativePG
 │   ├── 04-postgres.yaml      # App → ./infra/postgres (instance pg-main)
 │   ├── postgres/             # Cluster pg-main + rôles + bases (Database CRD)
+│   │   ├── README.md              # Guide : ajouter un user/base
 │   │   ├── 00-secrets-init.yaml   # Job : génère 1 secret/mot de passe par rôle
 │   │   ├── 05-certificate.yaml    # Cert serveur TLS (cert-manager my-ca-issuer)
 │   │   ├── 06-ca-bundle.yaml      # ConfigMap pg-main-ca (CA pour verify-full)
-│   │   ├── 10-cluster.yaml        # Cluster CNPG pg-main
-│   │   ├── 20-databases.yaml      # Bases zitadel/coder/gitea/litellm
+│   │   ├── 10-cluster.yaml        # Cluster CNPG pg-main + rôles managés
+│   │   ├── db-<app>.yaml          # Une base par app (zitadel/coder/gitea/litellm)
 │   │   └── migration/             # Jobs pg_dump/pg_restore (NON synchro ArgoCD)
 │   ├── 04-*.yaml             # DB Zitadel (legacy) + TrueNAS storage
 │   ├── 05-zitadel.yaml
