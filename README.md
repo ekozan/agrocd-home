@@ -6,7 +6,7 @@ Dépôt GitOps pour la gestion déclarative d'un cluster Kubernetes via ArgoCD. 
 
 ```
 Kubernetes Cluster
-├── Réseau          → Traefik 3 (ingress, OIDC, ModSecurity)
+├── Réseau          → Traefik 3 (ingress, OIDC, CrowdSec bouncer)
 ├── Secrets         → Vault / OpenBao + External-Secrets + Cert-Manager
 ├── Identité        → Zitadel (IdP OIDC)
 ├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
@@ -113,8 +113,10 @@ agrocd-home/
 ├── dev.yaml                   # ArgoCD App → ./dev
 │
 ├── init/
-│   ├── 00-traefik3.yaml      # Ingress controller Traefik 3
-│   └── vault.yaml            # HashiCorp Vault
+│   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
+│   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
+│   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
+│   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
 │   ├── init/                 # Namespaces
@@ -151,6 +153,7 @@ agrocd-home/
 | Application | Chart | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Traefik 3 | `traefik.github.io/charts` | 34.3.0 | kube-system |
+| CrowdSec | `crowdsecurity.github.io/helm-charts` | 0.24.0 | crowdsec |
 | Vault | `helm.releases.hashicorp.com` | 0.28.x | vault |
 | Cert-Manager | `charts.jetstack.io` | 1.15.x | cert-manager |
 | Trust-Manager | `charts.jetstack.io` | latest | cert-manager |
@@ -169,6 +172,34 @@ agrocd-home/
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
+
+---
+
+## Protection CrowdSec
+
+CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les décisions de blocage dans le **LAPI**. Le **plugin bouncer** (`crowdsec-bouncer-traefik-plugin` v1.6.0) interroge le LAPI directement depuis Traefik (mode `stream`) pour autoriser ou bloquer les IP.
+
+**Enregistrement de la clé (auto, runtime)** : le LAPI génère la clé API du bouncer. Le Job `crowdsec-bouncer-register` (hook ArgoCD `PostSync`) la récupère via `cscli` puis crée le Middleware `traefik/crowdsec` porteur de la clé. Le Middleware est créé au runtime (hors git) pour ne pas exposer la clé dans le dépôt ni entrer en conflit avec le self-heal.
+
+**Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
+
+```yaml
+# Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+```
+
+```yaml
+# IngressRoute
+spec:
+  routes:
+    - kind: Rule
+      match: Host(`exemple.ffd.link`)
+      middlewares:
+        - name: crowdsec
+          namespace: traefik
+```
 
 ---
 

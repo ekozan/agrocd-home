@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crowdsec
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: crowdsec
+    repoURL: https://crowdsecurity.github.io/helm-charts
+    targetRevision: 0.24.0
+    helm:
+      releaseName: crowdsec
+      valuesObject:
+        # API locale (LAPI) : centralise les décisions, interrogée par le bouncer Traefik
+        lapi:
+          # Persistance des décisions et des clés bouncers enregistrées
+          persistentVolume:
+            data:
+              enabled: true
+              size: 1Gi
+          # Souscription au CrowdSec Community Blocklist (CTI)
+          env:
+            - name: ENROLL_INSTANCE_NAME
+              value: "agrocd-home"
+        # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
+        agent:
+          # Collections de parsers/scénarios installées au démarrage
+          env:
+            - name: COLLECTIONS
+              value: "crowdsecurity/traefik crowdsecurity/base-http-scenarios crowdsecurity/http-cve"
+          # Sources de logs : access logs des pods Traefik 3
+          acquisition:
+            - namespace: traefik
+              podName: traefik3-*
+              program: traefik
+          persistentVolume:
+            config:
+              enabled: false
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: crowdsec
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: false

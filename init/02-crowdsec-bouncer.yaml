@@ -1,0 +1,122 @@
+# Auto-enregistrement du bouncer Traefik auprès du LAPI CrowdSec.
+#
+# Le LAPI génère une clé API ; ce Job la récupère via cscli puis crée le
+# Middleware Traefik qui porte la clé. Le Middleware n'est PAS suivi par git
+# (créé au runtime), il n'entre donc pas en conflit avec le self-heal d'ArgoCD.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crowdsec-bouncer-register
+  namespace: crowdsec
+---
+# Droits côté CrowdSec : lire les pods et exec cscli dans le pod LAPI
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crowdsec-bouncer-register
+  namespace: crowdsec
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crowdsec-bouncer-register
+  namespace: crowdsec
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: crowdsec-bouncer-register
+subjects:
+  - kind: ServiceAccount
+    name: crowdsec-bouncer-register
+    namespace: crowdsec
+---
+# Droits côté Traefik : gérer le Middleware qui porte la clé du bouncer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crowdsec-bouncer-register
+  namespace: traefik
+rules:
+  - apiGroups: ["traefik.io"]
+    resources: ["middlewares"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crowdsec-bouncer-register
+  namespace: traefik
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: crowdsec-bouncer-register
+subjects:
+  - kind: ServiceAccount
+    name: crowdsec-bouncer-register
+    namespace: crowdsec
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crowdsec-bouncer-register
+  namespace: crowdsec
+  annotations:
+    # Rejoué après chaque sync, une fois le LAPI déployé ; supprimé si succès
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: crowdsec-bouncer-register
+      restartPolicy: Never
+      containers:
+        - name: register
+          image: bitnami/kubectl:1.31
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              echo "Attente du LAPI CrowdSec..."
+              kubectl -n crowdsec wait --for=condition=ready pod \
+                -l type=lapi --timeout=300s
+
+              LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "Pod LAPI : ${LAPI_POD}"
+
+              # (Ré)enregistre le bouncer pour obtenir une clé API fraîche
+              kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                cscli bouncers delete traefik-bouncer >/dev/null 2>&1 || true
+              KEY=$(kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                cscli bouncers add traefik-bouncer -o raw)
+              echo "Bouncer 'traefik-bouncer' enregistré."
+
+              # Crée/met à jour le Middleware Traefik porteur de la clé
+              cat <<EOF | kubectl apply -f -
+              apiVersion: traefik.io/v1alpha1
+              kind: Middleware
+              metadata:
+                name: crowdsec
+                namespace: traefik
+              spec:
+                plugin:
+                  crowdsec:
+                    enabled: "true"
+                    logLevel: INFO
+                    crowdsecMode: stream
+                    crowdsecLapiScheme: http
+                    crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+                    crowdsecLapiKey: "${KEY}"
+              EOF
+              echo "Middleware traefik/crowdsec appliqué."
