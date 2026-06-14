@@ -224,6 +224,25 @@ kubectl -n crowdsec exec "$LAPI" -- cscli metrics
 kubectl -n crowdsec exec "$LAPI" -- cscli collections list
 ```
 
+**UI web (optionnel) — enrôlement Console** : pour disposer d'une interface graphique (alertes, décisions, métriques, blocklists), on enrôle l'instance dans la [Console CrowdSec](https://app.crowdsec.net). L'enrôlement est stocké sur le PVC du LAPI (`lapi.persistentVolume.data`) et survit donc aux redémarrages.
+
+```bash
+# 1. Sur https://app.crowdsec.net : Security Engines → Add Security Engine
+#    → copier la clé d'enrôlement (cabc...)
+
+# 2. Enrôler depuis le pod LAPI
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+kubectl -n crowdsec exec "$LAPI" -- \
+  cscli console enroll -n "agrocd-home" -t "k8s homelab" <CLE_ENROLEMENT>
+
+# 3. Accepter l'instance dans la Console (app.crowdsec.net)
+
+# 4. Redémarrer le LAPI pour appliquer
+kubectl -n crowdsec rollout restart deploy/crowdsec-lapi
+```
+
+> Seules des métadonnées sont envoyées au SaaS CrowdSec. L'enrôlement est manuel/ponctuel ; pour un ré-enrôlement automatique au (re)déploiement, utiliser plutôt les variables `lapi.env` (`ENROLL_KEY` via Secret, `ENROLL_INSTANCE_NAME`, `ENROLL_TAGS`).
+
 ---
 
 ## Gestion des certificats TLS
