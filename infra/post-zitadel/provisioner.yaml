@@ -1,0 +1,228 @@
+# Provisioning paramétrique des applications OIDC Zitadel.
+#
+# Pour chaque entrée de la ConfigMap `zitadel-oidc-apps`, le Job (hook PostSync,
+# idempotent) :
+#   1. garantit l'existence du projet Zitadel,
+#   2. garantit l'existence de l'application OIDC (création si absente),
+#   3. écrit `client_id` / `client_secret` dans OpenBao au chemin `baoPath`.
+#
+# Les credentials générés sont ensuite consommés par les services (ex. Traefik)
+# via ExternalSecret. Ajouter un service = ajouter une entrée dans la ConfigMap.
+#
+# Pré-requis (à déposer UNE fois dans OpenBao, chemin `kubernetes/zitadel/automation`) :
+#   - pat       : Personal Access Token d'un utilisateur machine Zitadel
+#                 (rôles ORG_PROJECT_CREATOR / PROJECT_OWNER suffisants).
+#   - bao_token : token OpenBao autorisé en écriture sur kv/kubernetes/*.
+---
+# Liste paramétrique des applications OIDC à provisionner.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zitadel-oidc-apps
+  namespace: zitadel
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  apps.json: |
+    [
+      {
+        "project": "ffd-link",
+        "name": "traefik",
+        "baoPath": "kubernetes/traefik/zitadel",
+        "redirectUris": ["https://whoami.ffd.link/oidc/callback"],
+        "postLogoutRedirectUris": ["https://whoami.ffd.link/"]
+      }
+    ]
+---
+# Script de provisioning (Zitadel Management API -> OpenBao KV v2).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zitadel-provisioner-script
+  namespace: zitadel
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  provision.sh: |
+    #!/bin/sh
+    set -eu
+
+    apk add --no-cache curl jq ca-certificates >/dev/null
+
+    # Ajoute la CA interne du cluster au magasin système (idp/openbao en TLS).
+    if [ -f /etc/trust/trust-bundle.pem ]; then
+      cp /etc/trust/trust-bundle.pem /usr/local/share/ca-certificates/local-ca.crt
+      update-ca-certificates >/dev/null 2>&1 || true
+    fi
+
+    Z="${ZITADEL_ISSUER}"
+    BAO="${OPENBAO_ADDR}"
+    AUTH="Authorization: Bearer ${ZITADEL_PAT}"
+    VTOK="X-Vault-Token: ${OPENBAO_TOKEN}"
+    JSON="Content-Type: application/json"
+
+    echo "Attente de la disponibilité de Zitadel (${Z})..."
+    n=0
+    until curl -sf "${Z}/.well-known/openid-configuration" >/dev/null; do
+      n=$((n + 1)); [ "$n" -ge 60 ] && { echo "Zitadel injoignable"; exit 1; }
+      sleep 5
+    done
+    echo "Zitadel prêt."
+
+    COUNT=$(jq 'length' /config/apps.json)
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      APP=$(jq -c ".[$i]" /config/apps.json)
+      PROJECT=$(echo "$APP"   | jq -r '.project')
+      NAME=$(echo "$APP"      | jq -r '.name')
+      BAOPATH=$(echo "$APP"   | jq -r '.baoPath')
+      REDIRECTS=$(echo "$APP" | jq -c '.redirectUris')
+      LOGOUTS=$(echo "$APP"   | jq -c '.postLogoutRedirectUris // []')
+      i=$((i + 1))
+
+      echo "=== ${PROJECT}/${NAME} -> kv/${BAOPATH} ==="
+
+      # 1. Projet (recherche par nom, création si absent)
+      PID=$(curl -sf -X POST "${Z}/management/v1/projects/_search" -H "$AUTH" -H "$JSON" \
+        -d "{\"queries\":[{\"nameQuery\":{\"name\":\"${PROJECT}\",\"method\":\"TEXT_QUERY_METHOD_EQUALS\"}}]}" \
+        | jq -r '.result[0].id // empty')
+      if [ -z "$PID" ]; then
+        PID=$(curl -sf -X POST "${Z}/management/v1/projects" -H "$AUTH" -H "$JSON" \
+          -d "{\"name\":\"${PROJECT}\"}" | jq -r '.id')
+        echo "  projet créé (${PID})"
+      else
+        echo "  projet existant (${PID})"
+      fi
+
+      # 2. Application OIDC (recherche par nom dans le projet)
+      AID=$(curl -sf -X POST "${Z}/management/v1/projects/${PID}/apps/_search" -H "$AUTH" -H "$JSON" \
+        -d "{\"queries\":[{\"nameQuery\":{\"name\":\"${NAME}\",\"method\":\"TEXT_QUERY_METHOD_EQUALS\"}}]}" \
+        | jq -r '.result[0].id // empty')
+
+      if [ -z "$AID" ]; then
+        BODY=$(jq -n --arg name "$NAME" --argjson r "$REDIRECTS" --argjson l "$LOGOUTS" '{
+          name: $name,
+          redirectUris: $r,
+          postLogoutRedirectUris: $l,
+          responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
+          grantTypes: ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
+          appType: "OIDC_APP_TYPE_WEB",
+          authMethodType: "OIDC_AUTH_METHOD_TYPE_BASIC",
+          version: "OIDC_VERSION_0_0",
+          accessTokenType: "OIDC_TOKEN_TYPE_BEARER",
+          devMode: false
+        }')
+        RESP=$(curl -sf -X POST "${Z}/management/v1/projects/${PID}/apps/oidc" -H "$AUTH" -H "$JSON" -d "$BODY")
+        CLIENT_ID=$(echo "$RESP" | jq -r '.clientId')
+        CLIENT_SECRET=$(echo "$RESP" | jq -r '.clientSecret')
+        echo "  application OIDC créée (clientId ${CLIENT_ID})"
+      else
+        echo "  application OIDC existante (${AID})"
+        # Convergence : si OpenBao détient déjà le secret, ne rien faire.
+        HAVE=$(curl -s -H "$VTOK" "${BAO}/v1/kv/data/${BAOPATH}" | jq -r '.data.data.client_secret // empty')
+        if [ -n "$HAVE" ]; then
+          echo "  secret déjà présent dans OpenBao -> rien à faire"
+          continue
+        fi
+        echo "  secret absent d'OpenBao -> régénération du client secret"
+        CLIENT_ID=$(curl -sf "${Z}/management/v1/projects/${PID}/apps/${AID}" -H "$AUTH" \
+          | jq -r '.app.oidcConfig.clientId')
+        CLIENT_SECRET=$(curl -sf -X POST \
+          "${Z}/management/v1/projects/${PID}/apps/${AID}/oidc_config/_generate_client_secret" -H "$AUTH" \
+          | jq -r '.clientSecret')
+      fi
+
+      # 3. Écriture des credentials dans OpenBao (KV v2)
+      PAYLOAD=$(jq -n --arg ci "$CLIENT_ID" --arg cs "$CLIENT_SECRET" --arg iss "$Z" \
+        '{data: {client_id: $ci, client_secret: $cs, issuer: $iss}}')
+      curl -sf -X POST "${BAO}/v1/kv/data/${BAOPATH}" -H "$VTOK" -H "$JSON" -d "$PAYLOAD" >/dev/null
+      echo "  credentials écrits dans kv/${BAOPATH}"
+    done
+
+    echo "Provisioning terminé."
+---
+# Auth du provisioner (PAT Zitadel + token OpenBao) tirée depuis OpenBao.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: zitadel-provisioner-auth
+  namespace: zitadel
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: zitadel-provisioner-auth
+    creationPolicy: Owner
+  data:
+    - secretKey: pat
+      remoteRef:
+        key: kubernetes/zitadel/automation
+        property: pat
+    - secretKey: bao_token
+      remoteRef:
+        key: kubernetes/zitadel/automation
+        property: bao_token
+---
+# Job de provisioning — hook PostSync, rejoué à chaque sync, idempotent.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: zitadel-oidc-provisioner
+  namespace: zitadel
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: provision
+          image: alpine:3.21
+          command: ["/bin/sh", "/scripts/provision.sh"]
+          env:
+            - name: ZITADEL_ISSUER
+              value: "https://idp.ffd.link"
+            - name: OPENBAO_ADDR
+              value: "https://openbao.ffd.link"
+            - name: ZITADEL_PAT
+              valueFrom:
+                secretKeyRef:
+                  name: zitadel-provisioner-auth
+                  key: pat
+            - name: OPENBAO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zitadel-provisioner-auth
+                  key: bao_token
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+            - name: apps
+              mountPath: /config
+              readOnly: true
+            - name: trust
+              mountPath: /etc/trust
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: zitadel-provisioner-script
+        - name: apps
+          configMap:
+            name: zitadel-oidc-apps
+        - name: trust
+          configMap:
+            name: local-ca-bundle
+            optional: true
+            items:
+              - key: trust-bundle.pem
+                path: trust-bundle.pem

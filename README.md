@@ -58,7 +58,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 
 - Credentials TrueNAS (Democratic-CSI) : NFS et SMB
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
-- Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
+- Provisioning OIDC Zitadel (chemin `kubernetes/zitadel/automation`) : `pat` (Personal Access Token d'un utilisateur machine Zitadel) + `bao_token` (token OpenBao autorisé en écriture sur `kv/kubernetes/*`). À partir de là, les credentials des apps OIDC (`client_id`/`client_secret`) sont **générés automatiquement** dans OpenBao par le Job `zitadel-oidc-provisioner` (cf. `infra/post-zitadel/`).
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
 - Certificats TLS si non gérés par Cert-Manager
 
@@ -97,7 +97,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `3` | Certificat TLS PostgreSQL Zitadel |
 | `4` | PostgreSQL Zitadel, Democratic-CSI (TrueNAS) |
 | `5` | Zitadel (IdP) |
-| `6` | Gitea |
+| `6` | Gitea, Post-Zitadel (provisioning OIDC → OpenBao) |
 | `7` | Gitea Act Runner |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
@@ -124,7 +124,7 @@ agrocd-home/
 │   ├── post-certmanager/     # CA auto-signée + bundle
 │   ├── post-externalsecrets/ # Secret stores (OpenBao, democratic-csi)
 │   ├── pre-zitadel/          # Certificat PostgreSQL
-│   ├── post-zitadel/         # (réservé)
+│   ├── post-zitadel/         # Provisioning OIDC paramétrique → OpenBao + Middleware Traefik
 │   ├── 00-init.yaml          # Init namespaces
 │   ├── 01-*.yaml             # Cert-Manager, External-Secrets, Replicator
 │   ├── 02-*.yaml             # Post-cert-manager, Post-external-secrets
@@ -132,6 +132,7 @@ agrocd-home/
 │   ├── 04-*.yaml             # DB Zitadel + TrueNAS storage
 │   ├── 05-zitadel.yaml
 │   ├── 06-gitea.yaml
+│   ├── 06-post-zitadel.yaml
 │   └── 07-gitea-act-runner.yaml
 │
 ├── dev/
@@ -245,6 +246,59 @@ kubectl -n crowdsec rollout restart deploy/crowdsec-lapi
 
 ---
 
+## Provisioning OIDC Zitadel (paramétrique → OpenBao)
+
+Le setup d'un projet/application OIDC Zitadel est **déclaratif et paramétrique** :
+on décrit les applications dans une ConfigMap, et un Job idempotent crée le projet,
+l'application OIDC, puis **écrit automatiquement** `client_id`/`client_secret` dans
+OpenBao. Les services (Traefik, Tuwunel, Coder…) consomment ensuite ces credentials
+via `ExternalSecret`. Plus aucun secret OIDC à copier-coller à la main.
+
+**Chaîne complète** :
+
+```
+ConfigMap zitadel-oidc-apps   →  Job zitadel-oidc-provisioner  →  OpenBao (kv/kubernetes/<ns>/<svc>)
+   (apps.json paramétrique)        (Zitadel Management API, PAT)        ↓ ExternalSecret
+                                                              Secret K8s  →  Middleware traefik-oidc-auth
+```
+
+**Pré-requis (une seule fois, dans OpenBao au chemin `kubernetes/zitadel/automation`)** :
+
+| Clé | Description |
+|-----|-------------|
+| `pat` | Personal Access Token d'un utilisateur machine Zitadel (rôle `ORG_PROJECT_CREATOR` / `PROJECT_OWNER`) |
+| `bao_token` | Token OpenBao autorisé en écriture sur `kv/kubernetes/*` |
+
+**Ajouter un service OIDC** : ajouter une entrée dans `infra/post-zitadel/provisioner.yaml`
+(ConfigMap `zitadel-oidc-apps`), puis laisser ArgoCD synchroniser :
+
+```json
+{
+  "project": "ffd-link",
+  "name": "coder",
+  "baoPath": "kubernetes/coder/zitadel",
+  "redirectUris": ["https://coder.ffd.link/api/v2/users/oidc/callback"],
+  "postLogoutRedirectUris": ["https://coder.ffd.link/"]
+}
+```
+
+Le Job (hook `PostSync`, rejoué à chaque sync) est **idempotent** : projet/app créés
+seulement s'ils manquent, et le secret n'est (ré)écrit dans OpenBao que s'il en est
+absent — pas de rotation intempestive ni de churn avec le self-heal d'ArgoCD.
+
+**Protéger une route avec le login OIDC Traefik** : référencer le Middleware créé.
+
+```yaml
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+```
+
+> Le callback du plugin `traefik-oidc-auth` est `/oidc/callback` : la redirect URI de
+> chaque hôte protégé doit figurer dans `redirectUris` de l'entrée correspondante.
+
+---
+
 ## Gestion des certificats TLS
 
 - **Let's Encrypt (ACME)** via le webhook OVH DNS-01 pour les domaines publics
@@ -285,6 +339,5 @@ Ce repo suit un workflow GitOps strict :
 | Priorité | Action |
 |----------|--------|
 | Rapide | Uniformiser le nommage des fichiers `infra/` (remplacer les espaces par des tirets) |
-| Rapide | Supprimer ou remplir `infra/post-zitadel/createApp.yaml` (actuellement vide) |
 | Moyen terme | Ajouter un `App of Apps` racine pour bootstrapper le cluster en un seul `kubectl apply` |
 | Optionnel | Extraire les Helm values dans des fichiers dédiés (`infra/values/zitadel.yaml`, etc.) pour améliorer la lisibilité des diffs Git |

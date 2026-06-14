@@ -1,0 +1,52 @@
+# Côté consommateur : login OIDC Zitadel dans Traefik.
+#
+# Les credentials sont provisionnés automatiquement dans OpenBao par le Job
+# `zitadel-oidc-provisioner` (cf. provisioner.yaml, entrée `traefik`).
+# Ici on les retire d'OpenBao vers un Secret, puis on expose un Middleware
+# `traefik-oidc-auth` (plugin sevensolutions déjà chargé dans Traefik).
+---
+# Credentials OIDC Traefik : OpenBao -> Secret Kubernetes.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: traefik-oidc-credentials
+  namespace: traefik
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: traefik-oidc-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/traefik/zitadel
+        property: client_id
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/traefik/zitadel
+        property: client_secret
+---
+# Middleware OIDC. ClientId/ClientSecret résolus depuis le Secret via la
+# syntaxe `urn:k8s:secret:<ns>:<secret>:<clé>` du plugin traefik-oidc-auth.
+# (Traefik dispose déjà des droits de lecture sur les Secrets.)
+#
+# Protéger une route :
+#   traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+# Le callback par défaut du plugin est `/oidc/callback` : la redirect URI de
+# chaque hôte protégé doit être enregistrée dans l'app OIDC (apps.json).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oidc-auth
+  namespace: traefik
+spec:
+  plugin:
+    traefik-oidc-auth:
+      Provider:
+        Url: "https://idp.ffd.link"
+        ClientId: "urn:k8s:secret:traefik:traefik-oidc-credentials:client_id"
+        ClientSecret: "urn:k8s:secret:traefik:traefik-oidc-credentials:client_secret"
+      Scopes: ["openid", "profile", "email"]
