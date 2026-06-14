@@ -6,7 +6,7 @@ Dépôt GitOps pour la gestion déclarative d'un cluster Kubernetes via ArgoCD. 
 
 ```
 Kubernetes Cluster
-├── Réseau          → Traefik 3 (ingress, OIDC, ModSecurity)
+├── Réseau          → Traefik 3 (ingress, OIDC, CrowdSec bouncer)
 ├── Secrets         → Vault / OpenBao + External-Secrets + Cert-Manager
 ├── Identité        → Zitadel (IdP OIDC)
 ├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
@@ -113,8 +113,11 @@ agrocd-home/
 ├── dev.yaml                   # ArgoCD App → ./dev
 │
 ├── init/
-│   ├── 00-traefik3.yaml      # Ingress controller Traefik 3
-│   └── vault.yaml            # HashiCorp Vault
+│   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
+│   ├── 01-crowdsec-secret.yaml   # Job generate-once du secret LAPI (déterministe)
+│   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
+│   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
+│   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
 │   ├── init/                 # Namespaces
@@ -151,6 +154,7 @@ agrocd-home/
 | Application | Chart | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Traefik 3 | `traefik.github.io/charts` | 34.3.0 | kube-system |
+| CrowdSec | `crowdsecurity.github.io/helm-charts` | 0.24.0 | crowdsec |
 | Vault | `helm.releases.hashicorp.com` | 0.28.x | vault |
 | Cert-Manager | `charts.jetstack.io` | 1.15.x | cert-manager |
 | Trust-Manager | `charts.jetstack.io` | latest | cert-manager |
@@ -169,6 +173,75 @@ agrocd-home/
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
+
+---
+
+## Protection CrowdSec
+
+CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les décisions de blocage dans le **LAPI**. Le **plugin bouncer** (`crowdsec-bouncer-traefik-plugin` v1.6.0) interroge le LAPI directement depuis Traefik (mode `stream`) pour autoriser ou bloquer les IP.
+
+**Enregistrement de la clé (auto, runtime)** : le LAPI génère la clé API du bouncer. Le Job `crowdsec-bouncer-register` (hook ArgoCD `PostSync`) la récupère via `cscli` puis crée le Middleware `traefik/crowdsec` porteur de la clé. Le Middleware est créé au runtime (hors git) pour ne pas exposer la clé dans le dépôt ni entrer en conflit avec le self-heal.
+
+**Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render, mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
+
+**Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
+
+```yaml
+# Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+```
+
+```yaml
+# IngressRoute
+spec:
+  routes:
+    - kind: Rule
+      match: Host(`exemple.ffd.link`)
+      middlewares:
+        - name: crowdsec
+          namespace: traefik
+```
+
+**Administration (CLI)** : pas d'UI web, tout se gère via `cscli` dans le pod LAPI.
+
+```bash
+# Raccourci vers le pod LAPI
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+
+# Alertes et décisions actives
+kubectl -n crowdsec exec "$LAPI" -- cscli alerts list
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions list
+
+# Bloquer / débloquer une IP manuellement
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions add --ip 1.2.3.4 --duration 4h
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions delete --ip 1.2.3.4
+
+# État : bouncers enregistrés, métriques, collections installées
+kubectl -n crowdsec exec "$LAPI" -- cscli bouncers list
+kubectl -n crowdsec exec "$LAPI" -- cscli metrics
+kubectl -n crowdsec exec "$LAPI" -- cscli collections list
+```
+
+**UI web (optionnel) — enrôlement Console** : pour disposer d'une interface graphique (alertes, décisions, métriques, blocklists), on enrôle l'instance dans la [Console CrowdSec](https://app.crowdsec.net). L'enrôlement est stocké sur le PVC du LAPI (`lapi.persistentVolume.data`) et survit donc aux redémarrages.
+
+```bash
+# 1. Sur https://app.crowdsec.net : Security Engines → Add Security Engine
+#    → copier la clé d'enrôlement (cabc...)
+
+# 2. Enrôler depuis le pod LAPI
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+kubectl -n crowdsec exec "$LAPI" -- \
+  cscli console enroll -n "agrocd-home" -t "k8s homelab" <CLE_ENROLEMENT>
+
+# 3. Accepter l'instance dans la Console (app.crowdsec.net)
+
+# 4. Redémarrer le LAPI pour appliquer
+kubectl -n crowdsec rollout restart deploy/crowdsec-lapi
+```
+
+> Seules des métadonnées sont envoyées au SaaS CrowdSec. L'enrôlement est manuel/ponctuel ; pour un ré-enrôlement automatique au (re)déploiement, utiliser plutôt les variables `lapi.env` (`ENROLL_KEY` via Secret, `ENROLL_INSTANCE_NAME`, `ENROLL_TAGS`).
 
 ---
 
