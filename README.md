@@ -114,6 +114,7 @@ agrocd-home/
 │
 ├── init/
 │   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
+│   ├── 01-crowdsec-secret.yaml   # Job generate-once du secret LAPI (déterministe)
 │   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
 │   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
 │   └── vault.yaml                # HashiCorp Vault
@@ -180,6 +181,8 @@ agrocd-home/
 CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les décisions de blocage dans le **LAPI**. Le **plugin bouncer** (`crowdsec-bouncer-traefik-plugin` v1.6.0) interroge le LAPI directement depuis Traefik (mode `stream`) pour autoriser ou bloquer les IP.
 
 **Enregistrement de la clé (auto, runtime)** : le LAPI génère la clé API du bouncer. Le Job `crowdsec-bouncer-register` (hook ArgoCD `PostSync`) la récupère via `cscli` puis crée le Middleware `traefik/crowdsec` porteur de la clé. Le Middleware est créé au runtime (hors git) pour ne pas exposer la clé dans le dépôt ni entrer en conflit avec le self-heal.
+
+**Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render, mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
 
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 

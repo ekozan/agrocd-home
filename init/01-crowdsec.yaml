@@ -16,6 +16,11 @@ spec:
     helm:
       releaseName: crowdsec
       valuesObject:
+        # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
+        # plutôt que randomisé par le chart → render déterministe sous ArgoCD
+        secrets:
+          externalSecret:
+            name: crowdsec-lapi-secrets
         # API locale (LAPI) : centralise les décisions, interrogée par le bouncer Traefik
         lapi:
           # Persistance des décisions et des clés bouncers enregistrées
@@ -45,4 +50,5 @@ spec:
       - CreateNamespace=true
     automated:
       prune: true
-      selfHeal: false
+      # Secret LAPI désormais déterministe (Job generate-once) → plus de churn
+      selfHeal: true
