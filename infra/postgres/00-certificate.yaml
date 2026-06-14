@@ -1,6 +1,7 @@
 # Certificat serveur TLS de pg-main, émis par la CA interne (my-ca-issuer).
-# Signé par la même CA que celle distribuée partout par trust-manager
-# (local-ca-bundle) → les applications peuvent vérifier en sslmode=verify-full.
+# Signé par la CA interne (root-secret) que trust-manager redistribue dans
+# chaque namespace via le ConfigMap pg-main-ca (00-ca-bundle.yaml) → les
+# applications peuvent vérifier le serveur en sslmode=verify-full.
 # Le Secret produit (type kubernetes.io/tls) contient tls.crt, tls.key ET ca.crt,
 # donc il sert à la fois de serverTLSSecret et de serverCASecret pour CNPG.
 apiVersion: cert-manager.io/v1
