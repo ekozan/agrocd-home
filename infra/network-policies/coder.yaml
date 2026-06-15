@@ -1,0 +1,42 @@
+---
+# default-deny ingress dans le namespace coder.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: coder
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Trafic intra-namespace autorisé : Coder → PostgreSQL ; workspaces → Coder
+# (si les workspaces sont créés dans le namespace coder).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: coder
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Traefik → Coder (coder.ffd.link + *.coder.ffd.link).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik
+  namespace: coder
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
