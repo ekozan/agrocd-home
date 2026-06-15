@@ -16,7 +16,24 @@ spec:
     helm:
       releaseName: crowdsec
       valuesObject:
+      
         container_runtime: containerd
+
+        config:
+          scenarios:
+            http-401-bf.yaml: |
+              type: leaky
+              name: custom/http-401-bf
+              description: "Répétition de HTTP 401 depuis une IP (bruteforce)"
+              filter: "evt.Meta.service == 'http' && evt.Meta.http_status == '401'"
+              groupby: "evt.Meta.source_ip"
+              capacity: 5
+              leakspeed: "1m"
+              blackhole: 5m
+              labels:
+                service: http
+                type: bruteforce
+                remediation: true
         # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
         # plutôt que randomisé par le chart → render déterministe sous ArgoCD
         secrets:
