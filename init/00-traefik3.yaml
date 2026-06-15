@@ -24,6 +24,7 @@ spec:
             spec:
               type: LoadBalancer
               ipFamilyPolicy: PreferDualStack
+              externalTrafficPolicy: Local
         ingressClass:  # @schema additionalProperties: false
           enabled: true
           isDefaultClass: true
