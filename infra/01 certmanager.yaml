@@ -8,7 +8,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   source:
     chart: cert-manager
     repoURL: https://charts.jetstack.io
@@ -23,8 +23,13 @@ spec:
     namespace: cert-manager
   # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
+      - CreateNamespace=true
     automated: 
       prune: true
       selfHeal: true

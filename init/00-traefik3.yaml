@@ -8,7 +8,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   source:
     chart: traefik
     repoURL: https://traefik.github.io/charts
@@ -50,8 +50,13 @@ spec:
     namespace: traefik
   # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
-    automated: 
+      - CreateNamespace=true
+    automated:
       prune: true
       selfHeal: false

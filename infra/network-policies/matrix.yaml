@@ -1,0 +1,77 @@
+---
+# default-deny ingress dans le namespace matrix.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: matrix
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Trafic intra-namespace autorisé (lk-jwt-service ↔ livekit, etc.).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: matrix
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Traefik → backends HTTP : tuwunel (8008), livekit signaling (7880),
+# lk-jwt-service (8080). Couvre aussi la fédération Matrix entrante (qui passe
+# par l'ingress HTTPS de Traefik) et le well-known.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-http
+  namespace: matrix
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 8008
+        - protocol: TCP
+          port: 7880
+        - protocol: TCP
+          port: 8080
+---
+# Média WebRTC LiveKit exposé directement via LoadBalancer (MetalLB), hors
+# Traefik : il faut autoriser le trafic Internet vers les pods livekit sur
+# TCP 7881 (repli ICE/TCP) et UDP 7882 (média). externalTrafficPolicy=Local
+# préserve l'IP source → on ouvre 0.0.0.0/0 et ::/0.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-livekit-media-from-internet
+  namespace: matrix
+spec:
+  podSelector:
+    matchLabels:
+      app: livekit
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+        - ipBlock:
+            cidr: "::/0"
+      ports:
+        - protocol: TCP
+          port: 7881
+        - protocol: UDP
+          port: 7882

@@ -2,8 +2,16 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: external-secrets
+  labels:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: democratic-csi
+  labels:
+    # democratic-csi a besoin de pods privileged (montage de volumes) :
+    # exemption explicite en privileged (relâche les contrôles, sans risque).
+    pod-security.kubernetes.io/enforce: privileged
