@@ -16,6 +16,7 @@ spec:
     helm:
       releaseName: crowdsec
       valuesObject:
+        container_runtime: containerd
         # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
         # plutôt que randomisé par le chart → render déterministe sous ArgoCD
         secrets:
