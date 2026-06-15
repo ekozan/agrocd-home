@@ -1,8 +1,11 @@
-# Auto-enregistrement du bouncer Traefik auprès du LAPI CrowdSec.
+# Enregistrement du bouncer Traefik auprès du LAPI CrowdSec.
 #
-# Le LAPI génère une clé API ; ce Job la récupère via cscli puis crée le
-# Middleware Traefik qui porte la clé. Le Middleware n'est PAS suivi par git
-# (créé au runtime), il n'entre donc pas en conflit avec le self-heal d'ArgoCD.
+# La clé API du bouncer est STABLE : générée une seule fois et conservée dans
+# le Secret crowdsec-bouncer-key. Le Job (ré)enregistre le bouncer avec cette
+# clé et crée le Middleware Traefik porteur de la même clé. Pas de rotation à
+# chaque sync (sinon clé middleware != clé LAPI -> 403 -> bouncer jamais actif).
+# Le Middleware n'est PAS suivi par git (créé au runtime) -> pas de conflit
+# avec le self-heal d'ArgoCD.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -10,7 +13,8 @@ metadata:
   name: crowdsec-bouncer-register
   namespace: crowdsec
 ---
-# Droits côté CrowdSec : lire les pods et exec cscli dans le pod LAPI
+# Droits côté CrowdSec : lire les pods, exec cscli dans le pod LAPI,
+# et gérer le Secret qui porte la clé stable du bouncer
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -23,6 +27,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -85,7 +92,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              set -euo pipefail
+              set -eu
 
               echo "Attente du LAPI CrowdSec..."
               kubectl -n crowdsec wait --for=condition=ready pod \
@@ -95,12 +102,23 @@ spec:
                 -o jsonpath='{.items[0].metadata.name}')
               echo "Pod LAPI : ${LAPI_POD}"
 
-              # (Ré)enregistre le bouncer pour obtenir une clé API fraîche
+              # Clé STABLE du bouncer : générée une seule fois, jamais rotationnée
+              KEY=$(kubectl -n crowdsec get secret crowdsec-bouncer-key \
+                -o jsonpath='{.data.apiKey}' 2>/dev/null | base64 -d 2>/dev/null || true)
+              if [ -z "${KEY}" ]; then
+                KEY=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                kubectl -n crowdsec create secret generic crowdsec-bouncer-key \
+                  --from-literal=apiKey="${KEY}"
+                echo "Clé bouncer générée (stable)."
+              fi
+
+              # (Ré)enregistre le bouncer avec CETTE clé stable -> middleware et
+              # LAPI portent toujours la même clé (auto-réparation, pas de 403)
               kubectl -n crowdsec exec "${LAPI_POD}" -- \
                 cscli bouncers delete traefik-bouncer >/dev/null 2>&1 || true
-              KEY=$(kubectl -n crowdsec exec "${LAPI_POD}" -- \
-                cscli bouncers add traefik-bouncer -o raw)
-              echo "Bouncer 'traefik-bouncer' enregistré."
+              kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                cscli bouncers add traefik-bouncer --key "${KEY}" >/dev/null
+              echo "Bouncer 'traefik-bouncer' enregistré avec la clé stable."
 
               # Crée/met à jour le Middleware Traefik porteur de la clé
               cat <<EOF | kubectl apply -f -
