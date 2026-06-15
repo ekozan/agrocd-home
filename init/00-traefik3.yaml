@@ -27,7 +27,7 @@ spec:
         ingressClass:  # @schema additionalProperties: false
           enabled: true
           isDefaultClass: true
-          name: "traefik3"
+          name: "traefik"
         experimental:
           abortOnPluginFailure: false
           fastProxy:
