@@ -9,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
 
   source:
     repoURL: https://github.com/ekozan/agrocd-home.git

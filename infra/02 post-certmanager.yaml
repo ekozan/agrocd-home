@@ -8,7 +8,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   source:
     chart: cert-manager-webhook-ovh
     repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
@@ -78,7 +78,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
 
   source:
     repoURL: https://github.com/ekozan/agrocd-home.git

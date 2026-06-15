@@ -64,9 +64,12 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 
 ### 3. Appliquer les ArgoCD Applications
 
-Les trois applications ArgoCD racines sont à appliquer dans cet ordre :
+Les applications ArgoCD racines sont à appliquer dans cet ordre :
 
 ```bash
+# 0. AppProject restreint (DOIT précéder les Applications qui le référencent)
+kubectl apply -f appproject.yaml
+
 # 1. Couche init : Traefik + Vault
 kubectl apply -f init.yaml
 

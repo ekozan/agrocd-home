@@ -1,0 +1,57 @@
+# AppProject restreint pour le cluster homelab (durcissement supply-chain, #2).
+#
+# Remplace l'usage de 'project: default' (qui autorise N'IMPORTE quel dépôt
+# source, destination et type de ressource). Ici on verrouille :
+#   - sourceRepos : liste blanche des seuls dépôts Git/Helm/OCI utilisés ;
+#   - destinations : uniquement le cluster local (pas de cluster externe) ;
+#   - les whitelists de ressources restent larges ('*') pour ne pas casser
+#     l'installation des charts — à resserrer ultérieurement si besoin.
+#
+# ⚠️ Ordre de déploiement : ce manifest doit être appliqué AVANT les
+# Applications qui le référencent :
+#     kubectl apply -f appproject.yaml
+# (il ne peut pas être géré par une app qui appartient elle-même au projet).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: homelab
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Projet restreint du cluster homelab (supply-chain hardening)
+
+  # Liste blanche des dépôts autorisés (Git + Helm + OCI).
+  sourceRepos:
+    - https://github.com/ekozan/agrocd-home.git
+    - https://traefik.github.io/charts
+    - https://crowdsecurity.github.io/helm-charts
+    - https://charts.jetstack.io
+    - https://charts.external-secrets.io
+    - https://helm.mittwald.de
+    - https://charts.zitadel.com
+    - https://charts.bitnami.com/bitnami
+    - https://dl.gitea.com/charts/
+    - https://democratic-csi.github.io/charts/
+    - https://helm.coder.com/v2
+    - https://aureq.github.io/cert-manager-webhook-ovh/
+    - oci://docker.litellm.ai/berriai/litellm-helm
+
+  # Seul le cluster local est une destination valide (tous namespaces).
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+
+  # Ressources cluster-scoped et namespacées : large pour ne pas casser les
+  # charts (CRDs, ClusterRole, ClusterIssuer, Namespace…). À resserrer plus tard.
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  # --- Vérification de signature GPG (à activer une fois la clé importée
+  # dans ArgoCD et les commits de `main` signés) ---
+  # signatureKeys:
+  #   - keyID: <FINGERPRINT_GPG>
