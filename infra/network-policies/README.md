@@ -28,15 +28,3 @@ par namespace, puis rouvrent explicitement les seuls flux légitimes.
 | `gitea` | Traefik → namespace ; intra-namespace (gitea/runner → PostgreSQL/Valkey) |
 | `coder` | Traefik → namespace ; intra-namespace (coder → PostgreSQL) |
 | `litellm` | intra-namespace ; `coder` → :4000 *(hypothèse, à valider)* |
-
-## ⚠️ Points à vérifier après déploiement
-
-- **Sondes kubelet** : sur certains CNI stricts, un default-deny ingress peut
-  bloquer les readiness/liveness probes (trafic issu du nœud). La plupart des
-  CNI (Calico, Cilium) l'autorisent par défaut. Vérifier que les pods restent
-  `Ready` après application.
-- **Consommateurs de LiteLLM** : seul `coder` est autorisé par hypothèse. Si
-  d'autres services appellent le proxy, ajouter leur namespace dans
-  `litellm.yaml`.
-- **egress** : non couvert ici. C'est l'étape suivante du durcissement réseau
-  (limiter l'exfiltration), à traiter à part car plus risquée.
