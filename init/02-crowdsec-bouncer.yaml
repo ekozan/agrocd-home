@@ -80,9 +80,27 @@ spec:
     spec:
       serviceAccountName: crowdsec-bouncer-register
       restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: register
           image: alpine/kubectl:1.33.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # HOME inscriptible pour le cache kubectl (rootfs en lecture seule)
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -121,3 +139,6 @@ spec:
                     crowdsecLapiKey: "${KEY}"
               EOF
               echo "Middleware traefik/crowdsec appliqué."
+      volumes:
+        - name: tmp
+          emptyDir: {}

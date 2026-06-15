@@ -61,9 +61,27 @@ spec:
     spec:
       serviceAccountName: livekit-keygen
       restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: keygen
           image: alpine/k8s:1.31.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # HOME inscriptible pour le cache kubectl (rootfs en lecture seule)
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -86,6 +104,9 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 # ConfigMap — configuration LiveKit (SFU)
 # Média exposé via un Service LoadBalancer dédié (MetalLB) :
@@ -131,9 +152,20 @@ spec:
       labels:
         app: livekit
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: livekit
           image: livekit/livekit-server:v1.12.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           args:
             - --config
             - /etc/livekit/livekit.yaml
@@ -164,6 +196,8 @@ spec:
             - name: config
               mountPath: /etc/livekit
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /
@@ -180,6 +214,8 @@ spec:
         - name: config
           configMap:
             name: livekit-config
+        - name: tmp
+          emptyDir: {}
 ---
 # Service — LiveKit signaling (backend de l'Ingress HTTPS, WS /rtc)
 apiVersion: v1
@@ -249,9 +285,20 @@ spec:
       labels:
         app: lk-jwt-service
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: lk-jwt-service
           image: ghcr.io/element-hq/lk-jwt-service:0.4.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           env:
             # URL WebSocket publique du SFU renvoyée aux clients
             - name: LIVEKIT_URL

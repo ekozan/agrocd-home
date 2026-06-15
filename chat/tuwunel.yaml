@@ -4,6 +4,11 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: matrix
+  labels:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
+    # Passer en enforce: restricted une fois tuwunel/livekit durcis et validés.
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---
@@ -110,9 +115,26 @@ spec:
       labels:
         app: tuwunel
     spec:
+      # ── Durcissement (à activer après test) ─────────────────────────────
+      # Tuwunel écrit sur /data (RocksDB, PVC Longhorn) et /media (PVC NFS).
+      # runAsNonRoot impose un fsGroup pour que l'UID non-root puisse écrire,
+      # MAIS le fsGroup se comporte mal sur NFS (freenas-nfs-csi) → à valider
+      # avant d'activer, sinon CrashLoop sur l'écriture des médias.
+      # securityContext:
+      #   runAsNonRoot: true
+      #   runAsUser: 65532
+      #   runAsGroup: 65532
+      #   fsGroup: 65532
+      #   seccompProfile:
+      #     type: RuntimeDefault
       containers:
         - name: tuwunel
           image: ghcr.io/matrix-construct/tuwunel:v1.7.1
+          # securityContext:
+          #   allowPrivilegeEscalation: false
+          #   readOnlyRootFilesystem: true   # config en RO ; data/media sont des volumes
+          #   capabilities:
+          #     drop: ["ALL"]
           args:
             - --config
             - /etc/tuwunel/tuwunel.toml

@@ -14,8 +14,13 @@ spec:
     namespace: zitadel
     # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
+      - CreateNamespace=true
     automated: 
       prune: true
       selfHeal: true
