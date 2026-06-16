@@ -46,6 +46,18 @@ spec:
             data:
               enabled: true
               size: 1Gi
+        appsec:
+          enabled: true
+          acquisitions:
+            - source: appsec
+              listen_addr: "0.0.0.0:7422"
+              path: /
+              appsec_config: crowdsecurity/virtual-patching
+              labels:
+                type: appsec
+          env:
+            - name: COLLECTIONS
+              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
           # Collections de parsers/scénarios installées au démarrage
