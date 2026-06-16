@@ -150,6 +150,12 @@ spec:
                     crowdsecLapiScheme: http
                     crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
                     crowdsecLapiKey: "${KEY}"
+                    # --- AppSec (WAF) ---
+                    crowdsecAppsecEnabled: "true"
+                    crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
+                    crowdsecAppsecScheme: http
+                    crowdsecAppsecFailureBlock: "true"
+                    crowdsecAppsecUnreachableBlock: "true"
               EOF
               echo "Middleware traefik/crowdsec appliqué."
       volumes:
