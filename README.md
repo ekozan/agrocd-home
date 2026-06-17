@@ -122,7 +122,6 @@ agrocd-home/
 │   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
 │   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
 │   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
-│   ├── 04-crowdsec-ui.yaml         # UI web locale (crowdsec-web-ui) + Job machine
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
@@ -131,6 +130,8 @@ agrocd-home/
 │   ├── post-externalsecrets/ # Secret stores (OpenBao, democratic-csi)
 │   ├── pre-zitadel/          # Certificat PostgreSQL
 │   ├── post-zitadel/         # (réservé)
+│   ├── network-policies/     # NetworkPolicies (default-deny + allow ciblés)
+│   ├── crowdsec-ui/          # UI web locale CrowdSec (crowdsec-web-ui)
 │   ├── 00-init.yaml          # Init namespaces
 │   ├── 01-*.yaml             # Cert-Manager, External-Secrets, Replicator
 │   ├── 02-*.yaml             # Post-cert-manager, Post-external-secrets
@@ -138,7 +139,9 @@ agrocd-home/
 │   ├── 04-*.yaml             # DB Zitadel + TrueNAS storage
 │   ├── 05-zitadel.yaml
 │   ├── 06-gitea.yaml
-│   └── 07-gitea-act-runner.yaml
+│   ├── 07-gitea-act-runner.yaml
+│   ├── 08-network-policies.yaml
+│   └── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
 │
 ├── dev/
 │   ├── coder.yaml
@@ -227,9 +230,9 @@ spec:
           namespace: traefik
 ```
 
-**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `init/04-crowdsec-ui.yaml`) interroge le LAPI local pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16`).
+**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `infra/crowdsec-ui/`, déployée par l'App ArgoCD `infra/09-crowdsec-ui.yaml`) interroge le LAPI local pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16`).
 
-Connexion au LAPI via un **compte machine** `crowdsec-web-ui` enregistré au runtime par le Job `crowdsec-ui-register` (hook `PostSync`, même principe que le bouncer). Le mot de passe est généré **une seule fois** dans le Secret `crowdsec-web-ui-credentials` (render déterministe, compatible `selfHeal`). Le cache SQLite de l'UI est persisté sur un PVC Longhorn (`/app/data`).
+Connexion au LAPI via un **compte machine** `crowdsec-web-ui` enregistré au runtime par le Job `crowdsec-ui-register` (hook `PostSync`, même principe que le bouncer). Le mot de passe est généré **une seule fois** dans le Secret `crowdsec-web-ui-credentials` (render déterministe, compatible `selfHeal`). Le cache SQLite de l'UI est persisté sur un PVC Longhorn (`/app/data`). Une NetworkPolicy dédiée autorise les pods Traefik à joindre l'UI sur le port `3000` (le namespace `crowdsec` étant en `default-deny-ingress`).
 
 **Administration (CLI)** : pour les opérations non couvertes par l'UI, tout reste gérable via `cscli` dans le pod LAPI.
 

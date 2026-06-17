@@ -273,3 +273,29 @@ spec:
     - secretName: ffd-link-tls
       hosts:
         - crowdsec.ffd.link
+---
+# Le namespace crowdsec applique un default-deny-ingress (cf.
+# infra/network-policies/crowdsec.yaml). L'allow existant n'ouvre que le LAPI
+# (8080/7422) ; on autorise donc explicitement les pods Traefik à joindre l'UI
+# sur le port 3000, sinon l'Ingress renverrait un 502.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-web-ui
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      app: crowdsec-web-ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000
