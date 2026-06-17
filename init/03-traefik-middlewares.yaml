@@ -1,0 +1,92 @@
+# Middlewares Traefik réutilisables, posés dans le namespace `traefik`
+# (comme le middleware `crowdsec`). Référençables depuis n'importe quel
+# Ingress/IngressRoute grâce à `allowCrossNamespace: true` (cf. 00-traefik3.yaml) :
+#
+#   traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only@kubernetescrd
+#   traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+#
+# Les middlewares se chaînent ; ex. CrowdSec + accès local uniquement :
+#   ...router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+---
+# Restreint l'accès aux réseaux locaux 10.10.x.x et 10.5.x.x.
+# Traefik est exposé en LoadBalancer avec externalTrafficPolicy: Local
+# (cf. 00-traefik3.yaml) → l'IP source réelle du client est préservée, donc
+# ipAllowList voit la vraie IP sans avoir besoin d'ipStrategy/depth.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: local-only
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  ipAllowList:
+    sourceRange:
+      - 10.10.0.0/16
+      - 10.5.0.0/16
+---
+# Credentials OIDC du client Traefik, sourcés depuis OpenBao (convention du repo).
+# Flux PKCE → client public, AUCUN client_secret n'est nécessaire.
+# À renseigner dans OpenBao sous kv/kubernetes/traefik/zitadel :
+#   - client_id      : ID du client OIDC (type PKCE) créé dans Zitadel
+#   - plugin_secret  : clé d'au moins 32 caractères pour chiffrer le cookie de session
+#
+# SkipDryRunOnMissingResource : la CRD ExternalSecret provient de la couche infra
+# (external-secrets). Au premier bootstrap elle peut ne pas encore exister ; on
+# évite l'échec du dry-run ArgoCD, le retry/selfHeal réconcilie une fois infra prête.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: traefik-oidc
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: traefik-oidc-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: clientId
+      remoteRef:
+        key: kubernetes/traefik/zitadel
+        property: client_id
+    - secretKey: pluginSecret
+      remoteRef:
+        key: kubernetes/traefik/zitadel
+        property: plugin_secret
+---
+# Login OIDC via Zitadel (plugin sevensolutions/traefik-oidc-auth, déclaré dans
+# 00-traefik3.yaml). Les valeurs sensibles sont résolues au runtime par Traefik
+# depuis le Secret traefik-oidc-secret via la syntaxe urn:k8s:secret:<name>:<key>
+# (le Secret doit être dans le même namespace que le Middleware → traefik).
+#
+# Côté Zitadel : créer une application OIDC de type "PKCE" (code flow + PKCE,
+# client public sans secret) et déclarer l'URL de redirection
+# https://<host-protégé>/oidc/callback pour chaque hôte protégé par ce middleware.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oidc-auth
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  plugin:
+    traefik-oidc-auth:
+      LogLevel: INFO
+      # Clé de chiffrement du cookie de session (>= 32 caractères)
+      Secret: "urn:k8s:secret:traefik-oidc-secret:pluginSecret"
+      Provider:
+        Url: "https://idp.ffd.link"
+        ClientId: "urn:k8s:secret:traefik-oidc-secret:clientId"
+        # Flux PKCE → client public, pas de ClientSecret
+        UsePkce: true
+      Scopes:
+        - openid
+        - profile
+        - email
