@@ -26,9 +26,9 @@ spec:
       - 10.5.0.0/16
 ---
 # Credentials OIDC du client Traefik, sourcés depuis OpenBao (convention du repo).
+# Flux PKCE → client public, AUCUN client_secret n'est nécessaire.
 # À renseigner dans OpenBao sous kv/kubernetes/traefik/zitadel :
-#   - client_id      : ID du client OIDC créé dans Zitadel
-#   - client_secret  : secret du client
+#   - client_id      : ID du client OIDC (type PKCE) créé dans Zitadel
 #   - plugin_secret  : clé d'au moins 32 caractères pour chiffrer le cookie de session
 #
 # SkipDryRunOnMissingResource : la CRD ExternalSecret provient de la couche infra
@@ -55,10 +55,6 @@ spec:
       remoteRef:
         key: kubernetes/traefik/zitadel
         property: client_id
-    - secretKey: clientSecret
-      remoteRef:
-        key: kubernetes/traefik/zitadel
-        property: client_secret
     - secretKey: pluginSecret
       remoteRef:
         key: kubernetes/traefik/zitadel
@@ -69,9 +65,9 @@ spec:
 # depuis le Secret traefik-oidc-secret via la syntaxe urn:k8s:secret:<name>:<key>
 # (le Secret doit être dans le même namespace que le Middleware → traefik).
 #
-# Côté Zitadel : créer une application "Web" OIDC (code flow) et déclarer
-# l'URL de redirection https://<host-protégé>/oidc/callback pour chaque hôte
-# protégé par ce middleware.
+# Côté Zitadel : créer une application OIDC de type "PKCE" (code flow + PKCE,
+# client public sans secret) et déclarer l'URL de redirection
+# https://<host-protégé>/oidc/callback pour chaque hôte protégé par ce middleware.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -88,8 +84,8 @@ spec:
       Provider:
         Url: "https://idp.ffd.link"
         ClientId: "urn:k8s:secret:traefik-oidc-secret:clientId"
-        ClientSecret: "urn:k8s:secret:traefik-oidc-secret:clientSecret"
-        UsePkce: false
+        # Flux PKCE → client public, pas de ClientSecret
+        UsePkce: true
       Scopes:
         - openid
         - profile

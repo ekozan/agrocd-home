@@ -283,9 +283,9 @@ metadata:
 
 **`oidc-auth` — pré-requis** :
 
-1. Créer une application **Web OIDC** (code flow) dans Zitadel, avec l'URL de redirection `https://<host-protégé>/oidc/callback` pour chaque hôte protégé.
+1. Créer une application **OIDC de type PKCE** (code flow + PKCE, client public sans secret) dans Zitadel, avec l'URL de redirection `https://<host-protégé>/oidc/callback` pour chaque hôte protégé.
 2. Renseigner dans OpenBao sous `kv/kubernetes/traefik/zitadel` :
-   - `client_id` / `client_secret` : credentials du client OIDC
+   - `client_id` : ID du client OIDC (le flux PKCE ne nécessite **pas** de `client_secret`)
    - `plugin_secret` : clé ≥ 32 caractères pour chiffrer le cookie de session
 
    L'ExternalSecret `traefik-oidc` matérialise ces valeurs dans le Secret `traefik-oidc-secret`, résolu au runtime par le plugin via `urn:k8s:secret:traefik-oidc-secret:<clé>`.
