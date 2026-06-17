@@ -187,6 +187,19 @@ CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les 
 
 **Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render, mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
 
+**Couverture** : le middleware est appliqué sur **toutes les routes publiques** exposées par Traefik.
+
+| Route | Fichier |
+|-------|---------|
+| `git.ffd.link` (Gitea) | `infra/06 gitea.yaml` |
+| `idp.ffd.link` (Zitadel) | `infra/05 zitadel.yaml` |
+| `coder.ffd.link` (+ wildcard) | `dev/coder.yaml` |
+| `matrix.ffd.link` (Tuwunel) | `chat/tuwunel.yaml` |
+| `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
+| `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
+
+> LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
+
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 
 ```yaml

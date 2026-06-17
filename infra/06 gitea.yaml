@@ -35,6 +35,9 @@ spec:
           tag: 1.25.3
         ingress:
           enabled: true
+          # Protection CrowdSec (bouncer + AppSec) sur Gitea
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
             - host: git.ffd.link
               paths:
