@@ -120,6 +120,7 @@ agrocd-home/
 │   ├── 01-crowdsec-secret.yaml   # Job generate-once du secret LAPI (déterministe)
 │   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
 │   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
+│   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
@@ -258,6 +259,36 @@ kubectl -n crowdsec rollout restart deploy/crowdsec-lapi
 ```
 
 > Seules des métadonnées sont envoyées au SaaS CrowdSec. L'enrôlement est manuel/ponctuel ; pour un ré-enrôlement automatique au (re)déploiement, utiliser plutôt les variables `lapi.env` (`ENROLL_KEY` via Secret, `ENROLL_INSTANCE_NAME`, `ENROLL_TAGS`).
+
+---
+
+## Middlewares Traefik réutilisables
+
+Définis dans `init/03-traefik-middlewares.yaml` (namespace `traefik`, comme le middleware `crowdsec`). Référençables depuis n'importe quel Ingress grâce à `allowCrossNamespace: true`.
+
+| Middleware | Rôle | Référence |
+|------------|------|-----------|
+| `crowdsec` | Bouncer + AppSec WAF CrowdSec | `traefik-crowdsec@kubernetescrd` |
+| `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16` et `10.5.0.0/16` | `traefik-local-only@kubernetescrd` |
+| `oidc-auth` | Login OIDC via Zitadel (plugin `traefik-oidc-auth`) | `traefik-oidc-auth@kubernetescrd` |
+
+**Appliquer sur une route** (les middlewares se chaînent, séparés par des virgules) :
+
+```yaml
+metadata:
+  annotations:
+    # CrowdSec + accès local uniquement
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+```
+
+**`oidc-auth` — pré-requis** :
+
+1. Créer une application **Web OIDC** (code flow) dans Zitadel, avec l'URL de redirection `https://<host-protégé>/oidc/callback` pour chaque hôte protégé.
+2. Renseigner dans OpenBao sous `kv/kubernetes/traefik/zitadel` :
+   - `client_id` / `client_secret` : credentials du client OIDC
+   - `plugin_secret` : clé ≥ 32 caractères pour chiffrer le cookie de session
+
+   L'ExternalSecret `traefik-oidc` matérialise ces valeurs dans le Secret `traefik-oidc-secret`, résolu au runtime par le plugin via `urn:k8s:secret:traefik-oidc-secret:<clé>`.
 
 ---
 
