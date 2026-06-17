@@ -8,17 +8,22 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   destination:
     server: "https://kubernetes.default.svc"
     namespace: coder
     # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
+      - CreateNamespace=true
     automated: 
       prune: true
-      selfHeal: true
+      selfHeal: false
   source:
     chart: coder
     repoURL: https://helm.coder.com/v2
@@ -32,6 +37,9 @@ spec:
           workspaceProxy: false
           ingress:
             enable: true
+            # Protection CrowdSec (bouncer + AppSec) sur Coder
+            annotations:
+              traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
             host: "coder.ffd.link"
             wildcardHost: "*.coder.ffd.link"
             tls:

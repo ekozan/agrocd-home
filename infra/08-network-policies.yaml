@@ -1,10 +1,11 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: pre-zitadel
+  name: network-policies
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"    
+    # Appliqué après le déploiement des workloads (gitea-act = wave 7)
+    argocd.argoproj.io/sync-wave: "8"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -13,16 +14,18 @@ spec:
   source:
     repoURL: https://github.com/ekozan/agrocd-home.git
     targetRevision: HEAD
-    path: ./infra/pre-zitadel
-   
+    path: ./infra/network-policies
+
   destination:
     server: https://kubernetes.default.svc
+    # Le namespace réel de chaque NetworkPolicy est porté par le manifest
+    # lui-même (metadata.namespace) ; cette valeur n'est qu'un défaut ArgoCD.
     namespace: argocd
 
   # Sync policy
   syncPolicy:
     syncOptions:
-      - CreateNamespace=true  
-    automated: 
+      - CreateNamespace=true
+    automated:
       prune: true
       selfHeal: true

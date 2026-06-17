@@ -8,14 +8,19 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   destination:
     server: "https://kubernetes.default.svc"
     namespace: zitadel
     # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
+      - CreateNamespace=true
     automated: 
       prune: true
       selfHeal: true
@@ -64,6 +69,9 @@ spec:
                     Mode: require #verify-ca
         ingress:
           enabled: true
+          # Protection CrowdSec (bouncer + AppSec) sur l'IdP Zitadel
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
             - host: idp.ffd.link
               paths:

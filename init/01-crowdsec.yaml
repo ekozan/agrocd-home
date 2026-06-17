@@ -1,0 +1,95 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crowdsec
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  source:
+    chart: crowdsec
+    repoURL: https://crowdsecurity.github.io/helm-charts
+    targetRevision: 0.24.0
+    helm:
+      releaseName: crowdsec
+      valuesObject:
+      
+        container_runtime: containerd
+
+        config:
+          appsec_configs:
+            full-appsec.yaml: |
+              name: custom/full-appsec
+              default_remediation: ban
+              inband_rules:
+                - crowdsecurity/base-config
+                - crowdsecurity/vpatch-*
+                - crowdsecurity/generic-*
+              outofband_rules:
+                - crowdsecurity/experimental-*
+          scenarios:
+            http-401-bf.yaml: |
+              type: leaky
+              name: custom/http-401-bf
+              description: "Répétition de HTTP 401 depuis une IP (bruteforce)"
+              filter: "evt.Meta.service == 'http' && evt.Meta.http_status == '401'"
+              groupby: "evt.Meta.source_ip"
+              capacity: 5
+              leakspeed: "1m"
+              blackhole: 5m
+              labels:
+                service: http
+                type: bruteforce
+                remediation: true
+        # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
+        # plutôt que randomisé par le chart → render déterministe sous ArgoCD
+        secrets:
+          externalSecret:
+            name: crowdsec-lapi-secrets
+        # API locale (LAPI) : centralise les décisions, interrogée par le bouncer Traefik
+        lapi:
+          # Persistance des décisions et des clés bouncers enregistrées
+          persistentVolume:
+            data:
+              enabled: true
+              size: 1Gi
+        appsec:
+          enabled: true
+          acquisitions:
+            - source: appsec
+              listen_addr: "0.0.0.0:7422"
+              path: /
+              
+              appsec_config: crowdsecurity/appsec-default
+              labels:
+                type: appsec
+          env:
+            - name: COLLECTIONS
+              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
+        # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
+        agent:
+          # Collections de parsers/scénarios installées au démarrage
+          env:
+            - name: COLLECTIONS
+              value: "crowdsecurity/traefik crowdsecurity/base-http-scenarios crowdsecurity/http-cve"
+          # Sources de logs : access logs des pods Traefik 3
+          acquisition:
+            - namespace: traefik
+              podName: traefik3-*
+              program: traefik
+          persistentVolume:
+            config:
+              enabled: false
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: crowdsec
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      # Secret LAPI désormais déterministe (Job generate-once) → plus de churn
+      selfHeal: true

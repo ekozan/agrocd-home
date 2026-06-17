@@ -8,14 +8,19 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   destination:
     server: "https://kubernetes.default.svc"
     namespace: gitea
     # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
+      - CreateNamespace=true
     automated: 
       prune: true
       selfHeal: true
@@ -30,6 +35,9 @@ spec:
           tag: 1.25.3
         ingress:
           enabled: true
+          # Protection CrowdSec (bouncer + AppSec) sur Gitea
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
             - host: git.ffd.link
               paths:

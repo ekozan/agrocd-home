@@ -8,7 +8,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: homelab
   source:
     chart: traefik
     repoURL: https://traefik.github.io/charts
@@ -16,17 +16,31 @@ spec:
     helm:
       releaseName: traefik3
       valuesObject:
+        # Logs d'accès requis pour que l'agent CrowdSec parse le trafic
+        logs:
+          access:
+            enabled: true
+        # Page de ban CrowdSec (ConfigMap crowdsec-ban-page) montée dans le
+        # conteneur Traefik → /etc/traefik/crowdsec/ban.html, référencée par
+        # le middleware crowdsec via banHTMLFilePath.
+        volumes:
+          - name: crowdsec-ban-page
+            mountPath: /etc/traefik/crowdsec
+            type: configMap
         service:
             spec:
               type: LoadBalancer
               ipFamilyPolicy: PreferDualStack
+              externalTrafficPolicy: Local
         ingressClass:  # @schema additionalProperties: false
           enabled: true
-          isDefaultClass: false
-          name: "traefik3"
+          isDefaultClass: true
+          name: "traefik"
         providers:               
-          kubernetesIngress:
-            ingressClass: traefik3
+          kubernetesCRD:
+            # Autorise les Ingress des autres namespaces à référencer le
+            # middleware crowdsec (traefik-crowdsec@kubernetescrd)
+            allowCrossNamespace: true
         experimental:
           abortOnPluginFailure: false
           fastProxy:
@@ -34,17 +48,25 @@ spec:
             debug: false
           kubernetesGateway:
             enabled: false
-          plugins: 
+          plugins:
             traefik-oidc-auth:
               moduleName: "github.com/sevensolutions/traefik-oidc-auth"
               version: "v0.20.1"
+            crowdsec:
+              moduleName: "github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
+              version: "v1.6.0"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: traefik
   # Sync policy
   syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
     syncOptions:
-      - CreateNamespace=true  
-    automated: 
+      - CreateNamespace=true
+    automated:
       prune: true
       selfHeal: false

@@ -6,7 +6,7 @@ Dépôt GitOps pour la gestion déclarative d'un cluster Kubernetes via ArgoCD. 
 
 ```
 Kubernetes Cluster
-├── Réseau          → Traefik 3 (ingress, OIDC, ModSecurity)
+├── Réseau          → Traefik 3 (ingress, OIDC, CrowdSec bouncer)
 ├── Secrets         → Vault / OpenBao + External-Secrets + Cert-Manager
 ├── Identité        → Zitadel (IdP OIDC)
 ├── Base de données → CloudNativePG (instance unique `pg-main`, bases multiples)
@@ -65,9 +65,12 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 
 ### 3. Appliquer les ArgoCD Applications
 
-Les trois applications ArgoCD racines sont à appliquer dans cet ordre :
+Les applications ArgoCD racines sont à appliquer dans cet ordre :
 
 ```bash
+# 0. AppProject restreint (DOIT précéder les Applications qui le référencent)
+kubectl apply -f appproject.yaml
+
 # 1. Couche init : Traefik + Vault
 kubectl apply -f init.yaml
 
@@ -114,8 +117,12 @@ agrocd-home/
 ├── dev.yaml                   # ArgoCD App → ./dev
 │
 ├── init/
-│   ├── 00-traefik3.yaml      # Ingress controller Traefik 3
-│   └── vault.yaml            # HashiCorp Vault
+│   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
+│   ├── 01-crowdsec-secret.yaml   # Job generate-once du secret LAPI (déterministe)
+│   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
+│   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
+│   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
+│   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
 │   ├── init/                 # Namespaces
@@ -163,6 +170,7 @@ agrocd-home/
 | Application | Chart | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Traefik 3 | `traefik.github.io/charts` | 34.3.0 | kube-system |
+| CrowdSec | `crowdsecurity.github.io/helm-charts` | 0.24.0 | crowdsec |
 | Vault | `helm.releases.hashicorp.com` | 0.28.x | vault |
 | Cert-Manager | `charts.jetstack.io` | 1.15.x | cert-manager |
 | Trust-Manager | `charts.jetstack.io` | latest | cert-manager |
@@ -254,6 +262,124 @@ config des applications ne sont pas modifiées.**
    `dev/coder-db.yaml`, et les sous-charts `postgresql` de Gitea/LiteLLM.
    ⚠️ Le `prune` ArgoCD est actif : supprimer ces fichiers détruit les anciens
    PostgreSQL — ne le faire qu'**après** validation de la migration.
+
+---
+
+## Protection CrowdSec
+
+CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les décisions de blocage dans le **LAPI**. Le **plugin bouncer** (`crowdsec-bouncer-traefik-plugin` v1.6.0) interroge le LAPI directement depuis Traefik (mode `stream`) pour autoriser ou bloquer les IP.
+
+**Enregistrement de la clé (auto, runtime)** : le LAPI génère la clé API du bouncer. Le Job `crowdsec-bouncer-register` (hook ArgoCD `PostSync`) la récupère via `cscli` puis crée le Middleware `traefik/crowdsec` porteur de la clé. Le Middleware est créé au runtime (hors git) pour ne pas exposer la clé dans le dépôt ni entrer en conflit avec le self-heal.
+
+**Page de blocage personnalisée (ban IP + AppSec)** : les requêtes bloquées reçoivent une page HTML (`banHTMLFilePath`) au lieu d'un 403 brut. La page est définie dans le ConfigMap `crowdsec-ban-page` (`init/02-crowdsec-bouncer.yaml`), montée dans les pods Traefik via les `volumes` du chart (`init/00-traefik3.yaml`) sous `/etc/traefik/crowdsec/ban.html`.
+
+Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu comme un **template Go** recevant `{{ .RemediationReason }}` (`LAPI` = ban IP, `APPSEC` = blocage WAF) et `{{ .ClientIP }}`. La page branche donc l'affichage pour montrer un message distinct selon l'origine du blocage (un second fichier ne serait jamais servi par le plugin). Modifier le ConfigMap suffit à changer la page (penser à recharger les pods Traefik).
+
+**Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render, mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
+
+**Couverture** : le middleware est appliqué sur **toutes les routes publiques** exposées par Traefik.
+
+| Route | Fichier |
+|-------|---------|
+| `git.ffd.link` (Gitea) | `infra/06 gitea.yaml` |
+| `idp.ffd.link` (Zitadel) | `infra/05 zitadel.yaml` |
+| `coder.ffd.link` (+ wildcard) | `dev/coder.yaml` |
+| `matrix.ffd.link` (Tuwunel) | `chat/tuwunel.yaml` |
+| `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
+| `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
+
+> LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
+
+**Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
+
+```yaml
+# Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+```
+
+```yaml
+# IngressRoute
+spec:
+  routes:
+    - kind: Rule
+      match: Host(`exemple.ffd.link`)
+      middlewares:
+        - name: crowdsec
+          namespace: traefik
+```
+
+**Administration (CLI)** : pas d'UI web, tout se gère via `cscli` dans le pod LAPI.
+
+```bash
+# Raccourci vers le pod LAPI
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+
+# Alertes et décisions actives
+kubectl -n crowdsec exec "$LAPI" -- cscli alerts list
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions list
+
+# Bloquer / débloquer une IP manuellement
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions add --ip 1.2.3.4 --duration 4h
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions delete --ip 1.2.3.4
+
+# État : bouncers enregistrés, métriques, collections installées
+kubectl -n crowdsec exec "$LAPI" -- cscli bouncers list
+kubectl -n crowdsec exec "$LAPI" -- cscli metrics
+kubectl -n crowdsec exec "$LAPI" -- cscli collections list
+```
+
+**UI web (optionnel) — enrôlement Console** : pour disposer d'une interface graphique (alertes, décisions, métriques, blocklists), on enrôle l'instance dans la [Console CrowdSec](https://app.crowdsec.net). L'enrôlement est stocké sur le PVC du LAPI (`lapi.persistentVolume.data`) et survit donc aux redémarrages.
+
+```bash
+# 1. Sur https://app.crowdsec.net : Security Engines → Add Security Engine
+#    → copier la clé d'enrôlement (cabc...)
+
+# 2. Enrôler depuis le pod LAPI
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+kubectl -n crowdsec exec "$LAPI" -- \
+  cscli console enroll -n "agrocd-home" -t "k8s homelab" <CLE_ENROLEMENT>
+
+# 3. Accepter l'instance dans la Console (app.crowdsec.net)
+
+# 4. Redémarrer le LAPI pour appliquer
+kubectl -n crowdsec rollout restart deploy/crowdsec-lapi
+```
+
+> Seules des métadonnées sont envoyées au SaaS CrowdSec. L'enrôlement est manuel/ponctuel ; pour un ré-enrôlement automatique au (re)déploiement, utiliser plutôt les variables `lapi.env` (`ENROLL_KEY` via Secret, `ENROLL_INSTANCE_NAME`, `ENROLL_TAGS`).
+
+---
+
+## Middlewares Traefik réutilisables
+
+Définis dans `init/03-traefik-middlewares.yaml` (namespace `traefik`, comme le middleware `crowdsec`). Référençables depuis n'importe quel Ingress grâce à `allowCrossNamespace: true`.
+
+| Middleware | Rôle | Référence |
+|------------|------|-----------|
+| `crowdsec` | Bouncer + AppSec WAF CrowdSec | `traefik-crowdsec@kubernetescrd` |
+| `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16` et `10.5.0.0/16` | `traefik-local-only@kubernetescrd` |
+| `oidc-auth` | Login OIDC via Zitadel (plugin `traefik-oidc-auth`) | `traefik-oidc-auth@kubernetescrd` |
+
+**Appliquer sur une route** (les middlewares se chaînent, séparés par des virgules) :
+
+```yaml
+metadata:
+  annotations:
+    # CrowdSec + accès local uniquement
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+```
+
+**`oidc-auth` — pré-requis** :
+
+1. Créer une application **OIDC de type PKCE** (code flow + PKCE, client public sans secret) dans Zitadel, avec l'URL de redirection `https://<host-protégé>/oidc/callback` pour chaque hôte protégé.
+2. Renseigner dans OpenBao sous `kv/kubernetes/traefik/zitadel` :
+   - `client_id` : ID du client OIDC (le flux PKCE ne nécessite **pas** de `client_secret`)
+   - `plugin_secret` : clé ≥ 32 caractères pour chiffrer le cookie de session
+
+   L'ExternalSecret `traefik-oidc` matérialise ces valeurs dans le Secret `traefik-oidc-secret`, résolu au runtime par le plugin via `urn:k8s:secret:traefik-oidc-secret:<clé>`.
+
+---
 
 ## Gestion des certificats TLS
 
