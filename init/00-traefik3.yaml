@@ -20,6 +20,13 @@ spec:
         logs:
           access:
             enabled: true
+        # Page de ban CrowdSec (ConfigMap crowdsec-ban-page) montée dans le
+        # conteneur Traefik → /etc/traefik/crowdsec/ban.html, référencée par
+        # le middleware crowdsec via banHTMLFilePath.
+        volumes:
+          - name: crowdsec-ban-page
+            mountPath: /etc/traefik/crowdsec
+            type: configMap
         service:
             spec:
               type: LoadBalancer

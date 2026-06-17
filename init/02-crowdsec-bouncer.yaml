@@ -4,6 +4,61 @@
 # Middleware Traefik qui porte la clé. Le Middleware n'est PAS suivi par git
 # (créé au runtime), il n'entre donc pas en conflit avec le self-heal d'ArgoCD.
 ---
+# Page de ban servie par le bouncer (banHTMLFilePath) quand une IP est bloquée.
+# Montée dans les pods Traefik via les values du chart (cf. 00-traefik3.yaml :
+# volumes → /etc/traefik/crowdsec/ban.html). Wave 0 : doit exister avant que
+# les pods Traefik ne montent le volume.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-ban-page
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  ban.html: |
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex, nofollow">
+      <title>Accès bloqué</title>
+      <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0; min-height: 100vh; display: flex;
+          align-items: center; justify-content: center;
+          font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          background: radial-gradient(circle at 50% 0%, #1b2430, #0b0f14);
+          color: #e6edf3; text-align: center; padding: 1.5rem;
+        }
+        .card {
+          max-width: 32rem; padding: 2.5rem 2rem;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 16px; backdrop-filter: blur(6px);
+        }
+        .icon { font-size: 3.5rem; line-height: 1; }
+        h1 { margin: 1rem 0 0.5rem; font-size: 1.6rem; }
+        p { margin: 0.4rem 0; color: #9fb0c0; line-height: 1.5; }
+        .code { margin-top: 1.5rem; font-size: 0.8rem; color: #6b7a8a;
+          letter-spacing: 0.05em; }
+      </style>
+    </head>
+    <body>
+      <main class="card">
+        <div class="icon">&#128683;</div>
+        <h1>Accès bloqué</h1>
+        <p>Votre adresse IP a été bloquée par notre système de protection
+        en raison d'une activité jugée suspecte.</p>
+        <p>S'il s'agit d'une erreur, contactez l'administrateur du service.</p>
+        <p class="code">HTTP 403 &middot; CrowdSec</p>
+      </main>
+    </body>
+    </html>
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -146,6 +201,8 @@ spec:
                   crowdsec:
                     enabled: "true"
                     logLevel: INFO
+                    # Page HTML servie aux IP bannies (montée via le chart Traefik)
+                    banHTMLFilePath: /etc/traefik/crowdsec/ban.html
                     crowdsecMode: stream
                     crowdsecLapiScheme: http
                     crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
