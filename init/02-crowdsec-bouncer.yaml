@@ -4,7 +4,11 @@
 # Middleware Traefik qui porte la clé. Le Middleware n'est PAS suivi par git
 # (créé au runtime), il n'entre donc pas en conflit avec le self-heal d'ArgoCD.
 ---
-# Page de ban servie par le bouncer (banHTMLFilePath) quand une IP est bloquée.
+# Page servie par le bouncer (banHTMLFilePath) lors d'un blocage.
+# Le plugin n'expose qu'UNE option de page, mais le fichier est rendu comme un
+# template Go recevant {{ .RemediationReason }} ("LAPI" = ban IP, "APPSEC" =
+# blocage WAF/AppSec) et {{ .ClientIP }} → on branche l'affichage pour avoir un
+# message distinct selon l'origine (un 2e fichier ne serait jamais servi).
 # Montée dans les pods Traefik via les values du chart (cf. 00-traefik3.yaml :
 # volumes → /etc/traefik/crowdsec/ban.html). Wave 0 : doit exister avant que
 # les pods Traefik ne montent le volume.
@@ -49,12 +53,20 @@ data:
     </head>
     <body>
       <main class="card">
+        {{ if eq .RemediationReason "APPSEC" }}
+        <div class="icon">&#128737;</div>
+        <h1>Requête bloquée</h1>
+        <p>Votre requête a été interceptée par notre pare-feu applicatif (WAF)
+        car elle correspond à un schéma de requête malveillant.</p>
+        {{ else }}
         <div class="icon">&#128683;</div>
         <h1>Accès bloqué</h1>
         <p>Votre adresse IP a été bloquée par notre système de protection
         en raison d'une activité jugée suspecte.</p>
+        {{ end }}
         <p>S'il s'agit d'une erreur, contactez l'administrateur du service.</p>
-        <p class="code">HTTP 403 &middot; CrowdSec</p>
+        {{ if .ClientIP }}<p class="code">IP : {{ .ClientIP }}</p>{{ end }}
+        <p class="code">HTTP 403 &middot; CrowdSec &middot; {{ .RemediationReason }}</p>
       </main>
     </body>
     </html>
