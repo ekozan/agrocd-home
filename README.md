@@ -25,6 +25,7 @@ Kubernetes Cluster
 | Zitadel | `https://idp.ffd.link` |
 | Vault | `https://vault.server` |
 | Tuwunel (Matrix) | `https://matrix.ffd.link` |
+| CrowdSec (UI web) | `https://crowdsec.ffd.link` (LAN uniquement) |
 | MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média via LoadBalancer MetalLB : UDP `7882` / TCP `7881`) |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 
@@ -121,6 +122,7 @@ agrocd-home/
 │   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
 │   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
 │   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
+│   ├── 04-crowdsec-ui.yaml         # UI web locale (crowdsec-web-ui) + Job machine
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
@@ -225,7 +227,11 @@ spec:
           namespace: traefik
 ```
 
-**Administration (CLI)** : pas d'UI web, tout se gère via `cscli` dans le pod LAPI.
+**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `init/04-crowdsec-ui.yaml`) interroge le LAPI local pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16`).
+
+Connexion au LAPI via un **compte machine** `crowdsec-web-ui` enregistré au runtime par le Job `crowdsec-ui-register` (hook `PostSync`, même principe que le bouncer). Le mot de passe est généré **une seule fois** dans le Secret `crowdsec-web-ui-credentials` (render déterministe, compatible `selfHeal`). Le cache SQLite de l'UI est persisté sur un PVC Longhorn (`/app/data`).
+
+**Administration (CLI)** : pour les opérations non couvertes par l'UI, tout reste gérable via `cscli` dans le pod LAPI.
 
 ```bash
 # Raccourci vers le pod LAPI
