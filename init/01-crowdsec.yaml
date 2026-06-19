@@ -24,8 +24,8 @@ spec:
             s02-enrich:
               matrix-whitelist.yaml: |
                 name: my/matrix-whitelist
-                description: "Whitelist Matrix/Synapse requests from NPMplus logs"
-                filter: "evt.Meta.service == 'http' && evt.Meta.log_type in ['http_access-log', 'http_error-log']"
+                description: "Whitelist Matrix/Synapse requests from Traefik logs"
+                filter: "evt.Meta.service == 'http' && evt.Meta.log_type == 'http_access-log'"
                 whitelist:
                   reason: "Matrix federation/client traffic"
                   expression:
