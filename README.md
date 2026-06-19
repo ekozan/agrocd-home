@@ -210,10 +210,12 @@ namespace database    → Cluster pg-main
                         └── base litellm  (rôle litellm)
 ```
 
-- **Identifiants** : un Secret `basic-auth` par rôle, à mot de passe aléatoire
-  généré en cluster par le Job `pg-secret-init`, puis répliqué
-  (kubernetes-replicator) vers le namespace de chaque application. Le superuser
-  `postgres` est géré par CNPG (`pg-main-superuser`).
+- **Identifiants** : un Secret `basic-auth` par rôle, à mot de passe aléatoire.
+  Le hook PostSync `pg-secret-init` lit `spec.managed.roles` du Cluster et
+  régénère **tout secret manquant** à chaque sync (puis réplication
+  kubernetes-replicator vers le namespace de l'app). Ajouter un rôle suffit à
+  obtenir son secret. Le superuser `postgres` est géré par CNPG
+  (`pg-main-superuser`).
 - **TLS** : le certificat serveur de `pg-main` est émis par **cert-manager**
   (`my-ca-issuer`, voir `infra/postgres/00-certificate.yaml`) et injecté via
   `spec.certificates`. Les certificats client/réplication restent gérés par CNPG.

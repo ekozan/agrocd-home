@@ -7,7 +7,7 @@ avec son **rôle propriétaire**.
 
 | Fichier | Rôle |
 |---------|------|
-| `00-secrets-init.yaml` | Job de bootstrap : génère 1 Secret `basic-auth` par rôle initial (répliqué vers le namespace de l'app) |
+| `00-secrets-init.yaml` | Hook PostSync : génère tout Secret `basic-auth` manquant à partir de `spec.managed.roles` (répliqué vers le namespace de l'app) |
 | `00-certificate.yaml` | Certificat serveur TLS (cert-manager `my-ca-issuer`) |
 | `00-ca-bundle.yaml` | ConfigMap `pg-main-ca` (CA pour `verify-full` côté client) |
 | `01-cluster.yaml` | Cluster `pg-main` + **rôles** (`spec.managed.roles`) |
@@ -27,23 +27,14 @@ avec son **rôle propriétaire**.
 
 ## Ajouter une nouvelle application (ex. `grafana`)
 
-### 1. Générer le Secret du mot de passe (one-off)
+> Le mot de passe est généré **automatiquement** : le hook PostSync
+> `pg-secret-init` lit `spec.managed.roles` du Cluster et crée tout Secret
+> `<rôle>-db` manquant à chaque sync. Aucune commande manuelle à lancer.
+> (Convention : le Secret est répliqué vers le namespace homonyme du rôle —
+> `grafana` → ns `grafana`. Si le namespace de l'app diffère du nom du rôle,
+> ajuster l'annotation `replicator.v1.mittwald.de/replicate-to`.)
 
-CNPG ne génère pas les mots de passe des rôles managés. Le Job `00-secrets-init`
-ne couvre que les rôles initiaux ; pour un ajout, créer le Secret à la main
-(`Job.spec.template` est immuable, ne pas modifier le Job existant) :
-
-```bash
-kubectl -n database create secret generic grafana-db \
-  --type=kubernetes.io/basic-auth \
-  --from-literal=username=grafana \
-  --from-literal=password=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c32)
-kubectl -n database label   secret grafana-db cnpg.io/reload=true
-kubectl -n database annotate secret grafana-db \
-  replicator.v1.mittwald.de/replicate-to=grafana   # namespace de l'app
-```
-
-### 2. Déclarer le rôle dans `01-cluster.yaml`
+### 1. Déclarer le rôle dans `01-cluster.yaml`
 
 Ajouter sous `spec.managed.roles` :
 
@@ -55,7 +46,7 @@ Ajouter sous `spec.managed.roles` :
           name: grafana-db
 ```
 
-### 3. Créer le fichier de la base `02-db-grafana.yaml`
+### 2. Créer le fichier de la base `02-db-grafana.yaml`
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
@@ -73,15 +64,15 @@ spec:
   databaseReclaimPolicy: retain
 ```
 
-### 4. Commit + push
+### 3. Commit + push
 
-ArgoCD synchronise : CNPG crée le rôle (avec le mot de passe du Secret) puis la
-base. L'app se connecte via le Secret `grafana-db` sur
-`pg-main-rw.database.svc/grafana`.
+ArgoCD synchronise : le hook `pg-secret-init` génère le Secret `grafana-db`
+manquant, puis CNPG crée le rôle (avec ce mot de passe) et la base. L'app se
+connecte via le Secret `grafana-db` sur `pg-main-rw.database.svc/grafana`.
 
 ## Variantes utiles
 
-- **User sans nouvelle base** : étape 2 seulement.
+- **User sans nouvelle base** : étape 1 seulement (rôle dans `01-cluster.yaml`).
 - **Options de rôle** (`managed.roles`) : `superuser`, `createdb`, `createrole`,
   `inRoles: [...]`, `connectionLimit`, `ensure: absent` (suppression).
 - **Supprimer une base** : `ensure: absent` dans `02-db-<app>.yaml` (protégée par
