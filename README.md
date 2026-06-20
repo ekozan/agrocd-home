@@ -141,7 +141,7 @@ agrocd-home/
 │   ├── 04-postgres.yaml      # App → ./infra/postgres (instance pg-main)
 │   ├── postgres/             # Cluster pg-main + rôles + bases (Database CRD)
 │   │   ├── README.md              # Guide : ajouter un user/base
-│   │   ├── 00-secrets-init.yaml   # Job : génère 1 secret/mot de passe par rôle
+│   │   ├── 00-secrets-init.yaml   # Hook PostSync : génère les secrets de rôle manquants
 │   │   ├── 00-certificate.yaml    # Cert serveur TLS (cert-manager my-ca-issuer)
 │   │   ├── 00-ca-bundle.yaml      # ConfigMap pg-main-ca (CA pour verify-full)
 │   │   ├── 01-cluster.yaml        # Cluster CNPG pg-main + rôles managés
