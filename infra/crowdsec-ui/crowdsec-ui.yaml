@@ -1,0 +1,313 @@
+# UI web locale pour CrowdSec — crowdsec-web-ui (TheDuffman85).
+#
+# Interface auto-hébergée qui interroge le LAPI local (alertes, décisions,
+# métriques) via un compte machine. AUCUNE donnée n'est envoyée à un SaaS
+# (contrairement à l'enrôlement Console). L'appli n'embarque PAS d'auth : elle
+# est exposée derrière Traefik et protégée par les middlewares `crowdsec`
+# (bouncer + AppSec) et `local-only` (réseaux LAN uniquement).
+#
+# Connexion au LAPI : compte machine `crowdsec-web-ui` enregistré au runtime par
+# le Job `crowdsec-ui-register` (cscli, même principe que le bouncer). Le mot de
+# passe est STABLE (généré une seule fois, stocké dans le Secret
+# crowdsec-web-ui-credentials) → render déterministe, pas de churn sous selfHeal.
+---
+# Compte de service du Job d'enregistrement de la machine
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crowdsec-ui-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# Droits : lire les pods + exec cscli dans le LAPI, gérer le Secret credentials
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crowdsec-ui-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crowdsec-ui-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: crowdsec-ui-register
+subjects:
+  - kind: ServiceAccount
+    name: crowdsec-ui-register
+    namespace: crowdsec
+---
+# Job d'enregistrement/auto-réparation du compte machine de l'UI.
+# Ressource NORMALE en wave 1 (PAS un hook PostSync) : ArgoCD attend qu'elle
+# soit Complete avant d'appliquer le Deployment (wave 2), garantissant que le
+# Secret crowdsec-web-ui-credentials existe AVANT que le pod UI le monte. Un
+# hook PostSync provoquerait un interblocage (le Deployment ne devient jamais
+# Healthy sans le Secret → le hook ne se déclenche jamais). Même schéma que le
+# Job crowdsec-lapi-secret-gen. Force/Replace : le Job est immuable, on le
+# remplace à chaque sync (idempotent : mot de passe stable réutilisé).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crowdsec-ui-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: crowdsec-ui-register
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: register
+          image: alpine/kubectl:1.33.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # HOME inscriptible pour le cache kubectl (rootfs en lecture seule)
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "Attente du LAPI CrowdSec..."
+              kubectl -n crowdsec wait --for=condition=ready pod \
+                -l type=lapi --timeout=300s
+
+              LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "Pod LAPI : ${LAPI_POD}"
+
+              # Mot de passe STABLE : généré une seule fois, jamais rotationné
+              PW=$(kubectl -n crowdsec get secret crowdsec-web-ui-credentials \
+                -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+              if [ -z "${PW}" ]; then
+                PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
+                  --from-literal=password="${PW}"
+                echo "Mot de passe UI généré (stable)."
+              fi
+
+              # Enregistre la machine SI ELLE N'EXISTE PAS encore. Idempotent :
+              # le Job est rejoué périodiquement (ttl + selfHeal) et on ne veut
+              # PAS supprimer/re-créer la machine à chaque passage (cela couperait
+              # brièvement la session LAPI de l'UI). Le mot de passe étant stable,
+              # un simple "add if missing" suffit à l'auto-réparation.
+              # -f /dev/null : on n'écrit pas de fichier credentials (l'UI lit l'env).
+              if kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                   cscli machines list -o json 2>/dev/null \
+                   | grep -q '"machineId": *"crowdsec-web-ui"'; then
+                echo "Machine 'crowdsec-web-ui' déjà enregistrée — rien à faire."
+              else
+                kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                  cscli machines add crowdsec-web-ui --password "${PW}" -f /dev/null
+                echo "Machine 'crowdsec-web-ui' enregistrée avec le mot de passe stable."
+              fi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# Persistance du cache SQLite de l'UI (alertes/décisions historisées sous
+# /app/data). Sa perte n'est pas critique (re-sync depuis le LAPI) mais évite un
+# rechargement complet à chaque redémarrage du pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: crowdsec-web-ui-data
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crowdsec-web-ui
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crowdsec-web-ui
+  strategy:
+    # Volume RWO (Longhorn) → éviter deux pods montant le même PVC pendant un roll
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: crowdsec-web-ui
+    spec:
+      # L'image tourne en utilisateur non-root `node` (UID 1000) ; fsGroup pour
+      # que le volume Longhorn (/app/data) soit inscriptible.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: crowdsec-web-ui
+          image: ghcr.io/theduffman85/crowdsec-web-ui:2026.6.3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # LAPI local (service du chart CrowdSec)
+            - name: CROWDSEC_URL
+              value: http://crowdsec-service.crowdsec.svc.cluster.local:8080
+            - name: CROWDSEC_USER
+              value: crowdsec-web-ui
+            - name: CROWDSEC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: crowdsec-web-ui-credentials
+                  key: password
+            - name: PORT
+              value: "3000"
+            - name: DB_DIR
+              value: /app/data
+          ports:
+            - containerPort: 3000
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: crowdsec-web-ui-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowdsec-web-ui
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: crowdsec-web-ui
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+# Ingress crowdsec.ffd.link — l'UI n'a pas d'auth intégrée : on la restreint au
+# LAN (local-only) en plus du bouncer CrowdSec. Cert wildcard *.ffd.link
+# (ffd-link-tls) répliqué dans tous les namespaces par kubernetes-replicator.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: crowdsec-web-ui
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # CrowdSec (bouncer + AppSec) + accès LAN uniquement
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: crowdsec.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: crowdsec-web-ui
+                port:
+                  number: 3000
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - crowdsec.ffd.link
+---
+# Le namespace crowdsec applique un default-deny-ingress (cf.
+# infra/network-policies/crowdsec.yaml). L'allow existant n'ouvre que le LAPI
+# (8080/7422) ; on autorise donc explicitement les pods Traefik à joindre l'UI
+# sur le port 3000, sinon l'Ingress renverrait un 502.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-web-ui
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      app: crowdsec-web-ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000

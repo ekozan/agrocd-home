@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crowdsec-ui
+  namespace: argocd
+  annotations:
+    # Après les network-policies (wave 8) ; le moteur CrowdSec (LAPI) provient
+    # de la couche init — le Job d'enregistrement attend que le LAPI soit prêt.
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: HEAD
+    path: ./infra/crowdsec-ui
+
+  destination:
+    server: https://kubernetes.default.svc
+    # Le namespace réel de chaque ressource est porté par le manifest
+    # (metadata.namespace = crowdsec) ; cette valeur n'est qu'un défaut ArgoCD.
+    namespace: crowdsec
+
+  # Sync policy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
