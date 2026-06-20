@@ -1,0 +1,40 @@
+# Migration Zitadel : postgresql.zitadel.svc (Bitnami, TLS) -> pg-main / base zitadel.
+# Tourne dans le namespace zitadel (accès au secret source local + au secret
+# cible zitadel-db répliqué). Lecture seule sur la source (pg_dump).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-zitadel
+  namespace: zitadel
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/cloudnative-pg/postgresql:16
+          env:
+            - name: SRC_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-auth
+                  key: postgres-password
+            - name: DST_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zitadel-db
+                  key: password
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              echo ">> dump source (zitadel)"
+              PGPASSWORD="$SRC_PGPASSWORD" pg_dump -Fc --no-owner --no-privileges \
+                "host=postgresql.zitadel.svc user=postgres dbname=zitadel sslmode=require" \
+                > /tmp/zitadel.dump
+              echo ">> restore vers pg-main"
+              PGPASSWORD="$DST_PGPASSWORD" pg_restore --no-owner --no-privileges --exit-on-error \
+                -h pg-main-rw.database.svc -U zitadel -d zitadel /tmp/zitadel.dump
+              echo ">> OK"

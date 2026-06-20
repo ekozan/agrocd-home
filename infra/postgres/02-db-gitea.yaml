@@ -1,0 +1,16 @@
+# Base PostgreSQL pour Gitea.
+# Le rôle propriétaire `gitea` est déclaré dans 01-cluster.yaml
+# (spec.managed.roles). Voir infra/postgres/README.md
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: gitea
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: gitea
+  owner: gitea
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain

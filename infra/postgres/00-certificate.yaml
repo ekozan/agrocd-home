@@ -1,0 +1,43 @@
+# Certificat serveur TLS de pg-main, émis par la CA interne (my-ca-issuer).
+# Signé par la CA interne (root-secret) que trust-manager redistribue dans
+# chaque namespace via le ConfigMap pg-main-ca (00-ca-bundle.yaml) → les
+# applications peuvent vérifier le serveur en sslmode=verify-full.
+# Le Secret produit (type kubernetes.io/tls) contient tls.crt, tls.key ET ca.crt,
+# donc il sert à la fois de serverTLSSecret et de serverCASecret pour CNPG.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pg-main-server-cert
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  secretName: pg-main-server-cert
+  commonName: pg-main-rw.database.svc.cluster.local
+  duration: 8760h0m0s     # 365 jours
+  renewBefore: 360h0m0s   # 15 jours
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - pg-main-rw
+    - pg-main-rw.database
+    - pg-main-rw.database.svc
+    - pg-main-rw.database.svc.cluster.local
+    - pg-main-ro
+    - pg-main-ro.database
+    - pg-main-ro.database.svc
+    - pg-main-ro.database.svc.cluster.local
+    - pg-main-r
+    - pg-main-r.database
+    - pg-main-r.database.svc
+    - pg-main-r.database.svc.cluster.local
+  issuerRef:
+    name: my-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

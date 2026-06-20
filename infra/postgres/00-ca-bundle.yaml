@@ -1,0 +1,20 @@
+# Diffuse UNIQUEMENT la CA interne (root-secret) sous forme d'un ConfigMap
+# `pg-main-ca` (clé ca.crt) dans tous les namespaces, via trust-manager.
+# Contrairement à local-ca-bundle (qui mélange les CA publiques Mozilla), ce
+# bundle ne contient que la CA qui signe le certificat serveur de pg-main.
+# Les applications le montent comme fichier et l'utilisent en sslrootcert
+# pour vérifier le serveur (sslmode=verify-full).
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: pg-main-ca
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  sources:
+    - secret:
+        name: root-secret
+        key: tls.crt
+  target:
+    configMap:
+      key: ca.crt

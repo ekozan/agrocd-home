@@ -1,0 +1,41 @@
+# Migration LiteLLM : litellm-postgresql.litellm.svc (sous-chart) -> pg-main / base litellm.
+# ⚠️ À CONFIRMER : que le chart LiteLLM déploie bien un PostgreSQL embarqué, et
+# les noms réels (service, secret/clé, utilisateur — souvent `llmproxy`).
+#   kubectl -n litellm get svc,secret
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-litellm
+  namespace: litellm
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/cloudnative-pg/postgresql:16
+          env:
+            - name: SRC_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql
+                  key: password
+            - name: DST_PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db
+                  key: password
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              echo ">> dump source (litellm)"
+              PGPASSWORD="$SRC_PGPASSWORD" pg_dump -Fc --no-owner --no-privileges \
+                "host=litellm-postgresql.litellm.svc user=llmproxy dbname=litellm sslmode=disable" \
+                > /tmp/litellm.dump
+              echo ">> restore vers pg-main"
+              PGPASSWORD="$DST_PGPASSWORD" pg_restore --no-owner --no-privileges --exit-on-error \
+                -h pg-main-rw.database.svc -U litellm -d litellm /tmp/litellm.dump
+              echo ">> OK"

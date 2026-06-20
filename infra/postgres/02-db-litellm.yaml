@@ -1,0 +1,16 @@
+# Base PostgreSQL pour LiteLLM.
+# Le rôle propriétaire `litellm` est déclaré dans 01-cluster.yaml
+# (spec.managed.roles). Voir infra/postgres/README.md
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: litellm
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: litellm
+  owner: litellm
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain

@@ -1,0 +1,16 @@
+# Base PostgreSQL pour Coder.
+# Le rôle propriétaire `coder` est déclaré dans 01-cluster.yaml
+# (spec.managed.roles). Voir infra/postgres/README.md
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: coder
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: coder
+  owner: coder
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain

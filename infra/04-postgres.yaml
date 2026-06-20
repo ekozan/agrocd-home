@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: database
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+    # L'opérateur CNPG (wave 3) installe ses CRD juste avant ; on tolère
+    # quelques échecs de sync le temps que les CRD soient disponibles.
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+  source:
+    path: infra/postgres
+    repoURL: 'https://github.com/ekozan/agrocd-home.git'
+    targetRevision: main
+    # recurse=false (défaut) → le sous-dossier infra/postgres/migration/
+    # N'EST PAS synchronisé. Les Jobs de migration sont appliqués
+    # manuellement lors de la bascule (voir README, Phase 2).
+    directory:
+      recurse: false

@@ -1,0 +1,17 @@
+# Base PostgreSQL pour Zitadel.
+# Le rôle propriétaire `zitadel` est déclaré dans 01-cluster.yaml
+# (spec.managed.roles) — contrainte CNPG : les rôles vivent dans le Cluster.
+# Procédure d'ajout d'une nouvelle app : voir infra/postgres/README.md
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: zitadel
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: zitadel
+  owner: zitadel
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain

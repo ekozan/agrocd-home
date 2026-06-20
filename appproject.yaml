@@ -30,6 +30,7 @@ spec:
     - https://charts.external-secrets.io
     - https://helm.mittwald.de
     - https://charts.zitadel.com
+    - https://cloudnative-pg.github.io/charts
     - https://charts.bitnami.com/bitnami
     - https://dl.gitea.com/charts/
     - https://democratic-csi.github.io/charts/
