@@ -33,7 +33,9 @@ spec:
       valuesObject:   
           image:
             repository: ghcr.io/berriai/litellm
-            tag: "latest"
+            # Tag épinglé (plus de "latest" flottant). Bumper vers la dernière
+            # version stable au besoin : ghcr.io/berriai/litellm:vX.Y.Z
+            tag: "v1.89.3"
           replicaCount: 1
           service:
             type: ClusterIP

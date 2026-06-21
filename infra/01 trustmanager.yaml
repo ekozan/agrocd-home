@@ -12,7 +12,8 @@ spec:
   source:
     chart: trust-manager
     repoURL: https://charts.jetstack.io
-    targetRevision: "*"
+    # Version épinglée (plus de "*" qui tirait n'importe quelle version)
+    targetRevision: "0.23.*"
     helm:
       releaseName: trust-manager
   destination:
