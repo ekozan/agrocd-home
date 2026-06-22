@@ -20,6 +20,18 @@ spec:
         container_runtime: containerd
 
         config:
+          parsers:
+            s02-enrich:
+              matrix-whitelist.yaml: |
+                name: my/matrix-whitelist
+                description: "Whitelist Matrix/Synapse requests from Traefik logs"
+                filter: "evt.Meta.service == 'http' && evt.Meta.log_type == 'http_access-log'"
+                whitelist:
+                  reason: "Matrix federation/client traffic"
+                  expression:
+                    - "evt.Meta.http_path startsWith '/_matrix/'"
+                    - "evt.Meta.http_path startsWith '/_synapse/'"
+                    - "evt.Meta.http_path startsWith '/.well-known/matrix/'"
           appsec_configs:
             full-appsec.yaml: |
               name: custom/full-appsec
