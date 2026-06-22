@@ -27,3 +27,18 @@ subjects:
   - kind: ServiceAccount
     name: eso-vault-auth
     namespace: external-secrets
+---
+# Token long-lived pour le SA — sert de "token_reviewer_jwt" côté OpenBao
+# EXTERNE (qui doit appeler l'API Kubernetes pour les TokenReview, sans pod
+# local). Kubernetes peuple .data.token et .data["ca.crt"] au runtime ; rien
+# de secret n'est stocké dans Git. Portée limitée : ce token ne permet QUE le
+# TokenReview (system:auth-delegator), pas la lecture de secrets.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eso-vault-auth-token
+  namespace: external-secrets
+  annotations:
+    kubernetes.io/service-account.name: eso-vault-auth
+type: kubernetes.io/service-account-token
+
