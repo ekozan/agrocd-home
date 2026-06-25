@@ -1,0 +1,128 @@
+# /etc/rancher/k3s/audit-policy.yaml — Politique d'audit API Kubernetes
+# Référencé par kube-apiserver-arg audit-policy-file dans config.yaml
+#
+# Niveaux d'audit disponibles :
+#   None     — ne pas logger
+#   Metadata — logger uniquement les métadonnées (user, timestamp, resource, verb)
+#   Request  — logger les métadonnées + le corps de la requête
+#   RequestResponse — logger métadonnées + requête + réponse (verbeux, coûteux)
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+
+# Pas de règle "omitStages" globale : capturer toutes les phases pertinentes
+omitStages:
+  - "RequestReceived"   # Trop verbeux, doublon avec ResponseStarted
+
+rules:
+  # ── Secrets, ConfigMaps, ServiceAccounts : niveau Request (corps inclus)
+  # Critique pour détecter les fuites de credentials
+  - level: Request
+    resources:
+      - group: ""
+        resources:
+          - secrets
+          - configmaps
+          - serviceaccounts
+          - serviceaccounts/token
+    verbs: ["create", "update", "patch", "delete"]
+
+  # ── Accès en lecture aux Secrets (Metadata uniquement — moins verbeux)
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: [secrets]
+    verbs: ["get", "list", "watch"]
+
+  # ── RBAC : tout changement de permissions (RequestResponse pour traçabilité complète)
+  - level: RequestResponse
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources:
+          - clusterroles
+          - clusterrolebindings
+          - roles
+          - rolebindings
+    verbs: ["create", "update", "patch", "delete"]
+
+  # ── Pods et workloads (création/suppression uniquement)
+  - level: Request
+    resources:
+      - group: ""
+        resources: [pods, pods/exec, pods/attach, pods/portforward]
+      - group: "apps"
+        resources: [deployments, daemonsets, statefulsets, replicasets]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # ── Exécution de commandes dans les pods (très sensible)
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources: [pods/exec, pods/attach]
+    verbs: ["create"]
+
+  # ── Namespaces et NetworkPolicies
+  - level: Request
+    resources:
+      - group: ""
+        resources: [namespaces]
+      - group: "networking.k8s.io"
+        resources: [networkpolicies]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # ── PersistentVolumes et StorageClasses
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: [persistentvolumes, persistentvolumeclaims]
+      - group: "storage.k8s.io"
+        resources: [storageclasses]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # ── Ressources système Kubernetes (health checks, leader election) — ignorer
+  - level: None
+    users:
+      - "system:kube-proxy"
+    verbs: ["watch"]
+    resources:
+      - group: ""
+        resources: [endpoints, services]
+
+  - level: None
+    users:
+      - "system:unsecured"
+    namespaces: ["kube-system"]
+    verbs: ["get"]
+    resources:
+      - group: ""
+        resources: [configmaps]
+
+  - level: None
+    users:
+      - "kubelet"
+    verbs: ["get"]
+    resources:
+      - group: ""
+        resources: [nodes]
+
+  - level: None
+    userGroups:
+      - "system:nodes"
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: ""
+        resources: [nodes, pods, services, endpoints, namespaces]
+
+  # ── Ignorer les health checks (très verbeux, peu utiles)
+  - level: None
+    nonResourceURLs:
+      - "/healthz*"
+      - "/readyz*"
+      - "/livez*"
+      - "/metrics"
+      - "/version"
+      - "/swagger*"
+      - "/openapi*"
+
+  # ── Tout le reste : Metadata (catch-all)
+  - level: Metadata

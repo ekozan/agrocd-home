@@ -428,6 +428,50 @@ Ce repo suit un workflow GitOps strict :
 
 ---
 
+## Hardening — OS + K3s + Kubernetes
+
+Le répertoire [`hardening/`](./hardening/README.md) centralise tous les outils et la documentation de durcissement.
+
+### OS Ubuntu (`hardening/ansible/`)
+
+Playbook Ansible couvrant le benchmark CIS Ubuntu 22.04 Level 1 adapté K3s :
+
+```bash
+cd hardening/ansible
+cp inventory.ini.example inventory.ini   # adapter IPs + utilisateur SSH
+ansible-playbook -i inventory.ini ubuntu-hardening.yml --check  # dry-run
+ansible-playbook -i inventory.ini ubuntu-hardening.yml
+```
+
+Couverture : sysctl kernel (ASLR, BPF JIT hardening, ptrace, ICMP redirects…), SSH (clés uniquement, algos modernes), UFW (deny-all + ports K3s/Traefik), fail2ban, auditd, AppArmor, mises à jour sécurité automatiques.
+
+### K3s (`hardening/k3s/`)
+
+Config durcie à déployer dans `/etc/rancher/k3s/config.yaml` avant démarrage K3s :
+
+```bash
+sudo cp hardening/k3s/config.yaml      /etc/rancher/k3s/config.yaml
+sudo cp hardening/k3s/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml
+sudo systemctl restart k3s
+```
+
+Active : `protect-kernel-defaults`, `secrets-encryption` (etcd AES-CBC), audit API Kubernetes, kubelet `anonymous-auth=false`, controller-manager bind 127.0.0.1.
+
+### NetworkPolicies — namespaces couverts
+
+| Namespace | Isolation | Accès autorisés |
+|-----------|-----------|-----------------|
+| `database` | default-deny | CNPG operator + zitadel/gitea/coder/litellm → :5432 |
+| `vault` | default-deny | Traefik + external-secrets → :8200 |
+| `crowdsec` | default-deny | Traefik → LAPI :8080 / AppSec :7422 |
+| `zitadel` | default-deny | Traefik |
+| `gitea` | default-deny | Traefik |
+| `coder` | default-deny | Traefik |
+| `litellm` | default-deny | Coder → :4000 |
+| `matrix` | default-deny | Traefik + Internet → LiveKit :7881/:7882 |
+
+---
+
 ## Améliorations envisagées
 
 | Priorité | Action |

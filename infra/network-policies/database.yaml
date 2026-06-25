@@ -1,0 +1,73 @@
+---
+# default-deny ingress dans le namespace database (CloudNativePG pg-main).
+# Le cluster PostgreSQL héberge les bases de zitadel, gitea, coder, litellm :
+# seuls ces namespaces et l'opérateur CNPG peuvent se connecter.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: database
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Trafic intra-namespace : réplication CNPG (primary ↔ replica), healthchecks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: database
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Opérateur CloudNativePG (namespace cnpg-system) → pg-main sur tous les ports
+# (gestion du cluster : reconciliation, switchover, backup, etc.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cnpg-operator
+  namespace: database
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+---
+# Applications → pg-main-rw (port 5432, lecture-écriture).
+# Chaque namespace applicatif se connecte avec son rôle dédié.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apps-to-postgres
+  namespace: database
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: zitadel
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gitea
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: coder
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: litellm
+      ports:
+        - protocol: TCP
+          port: 5432

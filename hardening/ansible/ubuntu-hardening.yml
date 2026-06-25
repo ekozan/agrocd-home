@@ -1,0 +1,599 @@
+---
+# Playbook de durcissement Ubuntu pour nœuds K3s/Rancher
+# Conforme CIS Ubuntu Linux 22.04 LTS Benchmark Level 1 + adaptations K3s
+#
+# Usage :
+#   ansible-playbook -i inventory.ini ubuntu-hardening.yml
+#   ansible-playbook -i inventory.ini ubuntu-hardening.yml --check  # dry-run
+#   ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags ssh,firewall
+
+- name: Durcissement Ubuntu — nœuds K3s/Rancher
+  hosts: k3s_nodes
+  become: true
+  gather_facts: true
+
+  vars:
+    # Port SSH (modifier si différent de 22)
+    ssh_port: 22
+    # Réseaux locaux autorisés à joindre l'API K3s (CIDR)
+    trusted_networks:
+      - 10.10.0.0/16
+      - 10.5.0.0/16
+    # NTP (Cloudflare + Google comme fallback)
+    ntp_servers: "time.cloudflare.com time1.google.com"
+    ntp_fallback: "ntp.ubuntu.com"
+
+  # ──────────────────────────────────────────────────────
+  # 1. PAQUETS DE SÉCURITÉ
+  # ──────────────────────────────────────────────────────
+  tasks:
+    - name: Mettre à jour le cache apt
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: packages
+
+    - name: Installer les paquets de sécurité
+      apt:
+        name:
+          - ufw
+          - fail2ban
+          - auditd
+          - audispd-plugins
+          - unattended-upgrades
+          - apt-listchanges
+          - libpam-pwquality
+          - apparmor
+          - apparmor-utils
+          - apparmor-profiles
+          - apparmor-profiles-extra
+          - needrestart
+          - acl
+          - rkhunter
+          - lynis
+        state: present
+      tags: packages
+
+    - name: Supprimer les paquets inutiles et risqués
+      apt:
+        name:
+          - telnet
+          - rsh-client
+          - rsh-redone-client
+          - talk
+          - talkd
+          - ntalk
+          - ftp
+          - nis
+          - rpcbind
+        state: absent
+        purge: yes
+      tags: packages
+
+  # ──────────────────────────────────────────────────────
+  # 2. DURCISSEMENT KERNEL (sysctl)
+  # ──────────────────────────────────────────────────────
+    - name: Appliquer les paramètres sysctl de durcissement
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+        sysctl_file: /etc/sysctl.d/99-k3s-hardening.conf
+      loop:
+        # Routage IP — requis par K3s pour le réseau pod-to-pod
+        - { key: net.ipv4.ip_forward,                         value: "1" }
+        - { key: net.ipv6.conf.all.forwarding,                value: "1" }
+
+        # Désactiver ICMP redirects (évite les attaques de routage)
+        - { key: net.ipv4.conf.all.send_redirects,            value: "0" }
+        - { key: net.ipv4.conf.default.send_redirects,        value: "0" }
+        - { key: net.ipv4.conf.all.accept_redirects,          value: "0" }
+        - { key: net.ipv4.conf.default.accept_redirects,      value: "0" }
+        - { key: net.ipv4.conf.all.secure_redirects,          value: "0" }
+        - { key: net.ipv4.conf.default.secure_redirects,      value: "0" }
+        - { key: net.ipv6.conf.all.accept_redirects,          value: "0" }
+        - { key: net.ipv6.conf.default.accept_redirects,      value: "0" }
+
+        # Désactiver l'auto-configuration IPv6 via RA (utiliser DHCPv6 si besoin)
+        - { key: net.ipv6.conf.all.accept_ra,                 value: "0" }
+        - { key: net.ipv6.conf.default.accept_ra,             value: "0" }
+
+        # Anti-usurpation (reverse path filtering)
+        - { key: net.ipv4.conf.all.rp_filter,                 value: "1" }
+        - { key: net.ipv4.conf.default.rp_filter,             value: "1" }
+
+        # Protection SYN flood
+        - { key: net.ipv4.tcp_syncookies,                     value: "1" }
+
+        # Log des paquets martiens (aide au débogage de routage suspect)
+        - { key: net.ipv4.conf.all.log_martians,              value: "1" }
+        - { key: net.ipv4.conf.default.log_martians,          value: "1" }
+
+        # Ignorer broadcasts ICMP et messages d'erreur invalides
+        - { key: net.ipv4.icmp_echo_ignore_broadcasts,        value: "1" }
+        - { key: net.ipv4.icmp_ignore_bogus_error_responses,  value: "1" }
+
+        # Masquer les adresses du kernel dans /proc et dmesg
+        - { key: kernel.dmesg_restrict,                       value: "1" }
+        - { key: kernel.kptr_restrict,                        value: "2" }
+
+        # ASLR (Address Space Layout Randomization) — niveau maximum
+        - { key: kernel.randomize_va_space,                   value: "2" }
+
+        # Restreindre ptrace aux processus parents directs
+        - { key: kernel.yama.ptrace_scope,                    value: "1" }
+
+        # Durcir le JIT BPF (rend les gadgets BPF inutilisables)
+        - { key: net.core.bpf_jit_harden,                     value: "2" }
+
+        # Désactiver BPF non-root non-privilégié
+        - { key: kernel.unprivileged_bpf_disabled,            value: "1" }
+
+        # Désactiver le magic SysRq (dangereux en production)
+        - { key: kernel.sysrq,                                value: "0" }
+
+        # Limiter les événements perf aux processus propres
+        - { key: kernel.perf_event_paranoid,                  value: "3" }
+
+        # Protection des liens symboliques et hard links
+        - { key: fs.protected_symlinks,                       value: "1" }
+        - { key: fs.protected_hardlinks,                      value: "1" }
+
+        # Désactiver les core dumps SUID
+        - { key: fs.suid_dumpable,                            value: "0" }
+
+        # Entropie ASLR mmap
+        - { key: vm.mmap_rnd_bits,                            value: "32" }
+        - { key: vm.mmap_rnd_compat_bits,                     value: "16" }
+      tags: sysctl
+
+  # ──────────────────────────────────────────────────────
+  # 3. DURCISSEMENT SSH
+  # ──────────────────────────────────────────────────────
+    - name: Durcir la configuration SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+        validate: /usr/sbin/sshd -t -f %s
+      loop:
+        # Uniquement le protocole 2
+        - { regexp: '^#?Protocol',               line: 'Protocol 2' }
+        # Clés publiques uniquement, pas de mot de passe
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication',   line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?PermitEmptyPasswords',   line: 'PermitEmptyPasswords no' }
+        # Interdire root en accès direct (utiliser sudo)
+        - { regexp: '^#?PermitRootLogin',        line: 'PermitRootLogin prohibit-password' }
+        # Limiter les tentatives d'authentification
+        - { regexp: '^#?MaxAuthTries',           line: 'MaxAuthTries 3' }
+        - { regexp: '^#?LoginGraceTime',         line: 'LoginGraceTime 30' }
+        # Timeout de session inactive
+        - { regexp: '^#?ClientAliveInterval',    line: 'ClientAliveInterval 300' }
+        - { regexp: '^#?ClientAliveCountMax',    line: 'ClientAliveCountMax 2' }
+        # Désactiver les fonctionnalités non utilisées
+        - { regexp: '^#?X11Forwarding',          line: 'X11Forwarding no' }
+        - { regexp: '^#?AllowAgentForwarding',   line: 'AllowAgentForwarding no' }
+        - { regexp: '^#?AllowTcpForwarding',     line: 'AllowTcpForwarding no' }
+        - { regexp: '^#?PermitUserEnvironment',  line: 'PermitUserEnvironment no' }
+        - { regexp: '^#?UseDNS',                 line: 'UseDNS no' }
+        # Journalisation renforcée
+        - { regexp: '^#?LogLevel',               line: 'LogLevel VERBOSE' }
+        - { regexp: '^#?SyslogFacility',         line: 'SyslogFacility AUTH' }
+        # Bannière légale
+        - { regexp: '^#?Banner',                 line: 'Banner /etc/issue.net' }
+        # Algorithmes cryptographiques sûrs uniquement (OpenSSH 8.x+)
+        - regexp: '^#?Ciphers'
+          line: 'Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr'
+        - regexp: '^#?MACs'
+          line: 'MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com'
+        - regexp: '^#?KexAlgorithms'
+          line: 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512'
+        - regexp: '^#?HostKeyAlgorithms'
+          line: 'HostKeyAlgorithms ssh-ed25519,rsa-sha2-512,rsa-sha2-256'
+      notify: restart sshd
+      tags: ssh
+
+    - name: Définir la bannière d'avertissement SSH
+      copy:
+        content: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║  ACCÈS RÉSERVÉ AUX UTILISATEURS HABILITÉS                   ║
+          ║  Toutes les activités sont enregistrées et surveillées.     ║
+          ║  Toute tentative d'accès non autorisé sera signalée.        ║
+          ╚══════════════════════════════════════════════════════════════╝
+        dest: /etc/issue.net
+        mode: '0644'
+      tags: ssh
+
+  # ──────────────────────────────────────────────────────
+  # 4. PARE-FEU UFW
+  # ──────────────────────────────────────────────────────
+    - name: Réinitialiser UFW
+      ufw:
+        state: reset
+      tags: firewall
+
+    - name: UFW — politique par défaut (refuser entrant, autoriser sortant)
+      ufw:
+        default: "{{ item.default }}"
+        direction: "{{ item.direction }}"
+      loop:
+        - { default: deny,  direction: incoming }
+        - { default: allow, direction: outgoing }
+        - { default: deny,  direction: routed }
+      tags: firewall
+
+    - name: UFW — autoriser SSH
+      ufw:
+        rule: allow
+        port: "{{ ssh_port }}"
+        proto: tcp
+        comment: SSH
+      tags: firewall
+
+    - name: UFW — autoriser HTTP/HTTPS (Traefik)
+      ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: tcp
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "80",  comment: "HTTP Traefik" }
+        - { port: "443", comment: "HTTPS Traefik" }
+      tags: firewall
+
+    - name: UFW — ports K3s inter-nœuds (depuis réseaux de confiance)
+      ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        src: "{{ network }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "6443",  proto: tcp, comment: "K3s API server" }
+        - { port: "8472",  proto: udp, comment: "K3s Flannel VXLAN" }
+        - { port: "51820", proto: udp, comment: "K3s WireGuard (si activé)" }
+        - { port: "10250", proto: tcp, comment: "Kubelet metrics" }
+        - { port: "2379",  proto: tcp, comment: "etcd client (HA)" }
+        - { port: "2380",  proto: tcp, comment: "etcd peer (HA)" }
+      loop_control:
+        loop_var: item
+      with_nested:
+        - "{{ trusted_networks }}"
+      vars:
+        network: "{{ item[1] }}"
+        item: "{{ item[0] }}"
+      tags: firewall
+
+    - name: UFW — MetalLB (LiveKit MatrixRTC)
+      ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "7881", proto: tcp, comment: "LiveKit ICE/TCP" }
+        - { port: "7882", proto: udp, comment: "LiveKit media UDP" }
+      tags: firewall
+
+    - name: UFW — activer le pare-feu
+      ufw:
+        state: enabled
+        logging: 'on'
+      tags: firewall
+
+  # ──────────────────────────────────────────────────────
+  # 5. FAIL2BAN
+  # ──────────────────────────────────────────────────────
+    - name: Configurer fail2ban
+      copy:
+        content: |
+          [DEFAULT]
+          # Durée de ban : 1 heure par défaut, 24h pour SSH
+          bantime   = 3600
+          findtime  = 600
+          maxretry  = 5
+          backend   = systemd
+
+          [sshd]
+          enabled  = true
+          port     = {{ ssh_port }}
+          filter   = sshd
+          maxretry = 3
+          bantime  = 86400
+          findtime = 600
+        dest: /etc/fail2ban/jail.local
+        mode: '0644'
+      notify: restart fail2ban
+      tags: fail2ban
+
+  # ──────────────────────────────────────────────────────
+  # 6. AUDITD
+  # ──────────────────────────────────────────────────────
+    - name: Déployer les règles auditd
+      copy:
+        content: |
+          ## Règles d'audit — nœuds K3s
+          # Supprimer toutes les règles existantes
+          -D
+          # Buffer (augmenter si perte d'événements)
+          -b 8192
+          # Mode d'échec : 1 = log, 2 = panic (utiliser 1 en production)
+          -f 1
+          # Ignorer les erreurs de règles manquantes au démarrage
+          -i
+
+          ## Identité et authentification
+          -w /etc/passwd           -p wa -k identity
+          -w /etc/group            -p wa -k identity
+          -w /etc/shadow           -p wa -k identity
+          -w /etc/gshadow          -p wa -k identity
+          -w /etc/sudoers          -p wa -k sudoers
+          -w /etc/sudoers.d/       -p wa -k sudoers
+          -w /etc/pam.d/           -p wa -k pam
+
+          ## Configuration SSH
+          -w /etc/ssh/sshd_config  -p wa -k sshd_config
+
+          ## Configuration K3s / Rancher
+          -w /etc/rancher/         -p wa -k k3s-config
+          -w /var/lib/rancher/k3s/server/token -p r -k k3s-token
+
+          ## Modules kernel
+          -a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k kernel_modules
+          -a always,exit -F arch=b32 -S init_module,finit_module,delete_module -k kernel_modules
+
+          ## Exécutions privilégiées (euid=0)
+          -a always,exit -F arch=b64 -S execve -F euid=0 -F auid>=1000 -F auid!=unset -k privileged-exec
+          -a always,exit -F arch=b32 -S execve -F euid=0 -F auid>=1000 -F auid!=unset -k privileged-exec
+
+          ## Changements d'heure
+          -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change
+          -a always,exit -F arch=b32 -S adjtimex,settimeofday,clock_settime -k time-change
+
+          ## Appels ptrace (débogage de processus, injection)
+          -a always,exit -F arch=b64 -S ptrace -k ptrace
+          -a always,exit -F arch=b32 -S ptrace -k ptrace
+
+          ## Montages/démontages de systèmes de fichiers
+          -a always,exit -F arch=b64 -S mount,umount2 -k mounts
+          -a always,exit -F arch=b32 -S mount,umount2 -k mounts
+
+          ## Cron
+          -w /etc/crontab          -p wa -k cron
+          -w /etc/cron.d/          -p wa -k cron
+          -w /etc/cron.daily/      -p wa -k cron
+          -w /etc/cron.hourly/     -p wa -k cron
+          -w /etc/cron.weekly/     -p wa -k cron
+          -w /etc/cron.monthly/    -p wa -k cron
+          -w /var/spool/cron/      -p wa -k cron
+
+          ## Réseau
+          -a always,exit -F arch=b64 -S sethostname,setdomainname -k network-config
+          -w /etc/hosts            -p wa -k hosts
+          -w /etc/network/         -p wa -k network
+
+          ## Binaires SUID/SGID (surveiller les changements de permissions)
+          -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid>=1000 -F auid!=unset -k perm_mod
+          -a always,exit -F arch=b32 -S chmod,fchmod,fchmodat -F auid>=1000 -F auid!=unset -k perm_mod
+
+          ## Rendre la configuration immuable (redémarrage nécessaire pour modifier)
+          -e 2
+        dest: /etc/audit/rules.d/99-k3s-hardening.rules
+        mode: '0640'
+      notify: restart auditd
+      tags: auditd
+
+    - name: Configurer la rotation des logs auditd
+      lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^max_log_file ',      line: 'max_log_file = 100' }
+        - { regexp: '^max_log_file_action', line: 'max_log_file_action = ROTATE' }
+        - { regexp: '^num_logs ',          line: 'num_logs = 10' }
+        - { regexp: '^space_left_action',  line: 'space_left_action = SYSLOG' }
+        - { regexp: '^admin_space_left_action', line: 'admin_space_left_action = HALT' }
+      notify: restart auditd
+      tags: auditd
+
+  # ──────────────────────────────────────────────────────
+  # 7. MISES À JOUR AUTOMATIQUES DE SÉCURITÉ
+  # ──────────────────────────────────────────────────────
+    - name: Configurer unattended-upgrades
+      copy:
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+            "${distro_id}:${distro_codename}-security";
+            "${distro_id}ESMApps:${distro_codename}-apps-security";
+            "${distro_id}ESM:${distro_codename}-infra-security";
+          };
+          Unattended-Upgrade::Package-Blacklist { };
+          Unattended-Upgrade::DevRelease "false";
+          Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+          Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+          Unattended-Upgrade::Automatic-Reboot "false";
+          Unattended-Upgrade::Mail "root";
+          Unattended-Upgrade::MailReport "only-on-error";
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        mode: '0644'
+      tags: updates
+
+    - name: Activer les mises à jour automatiques
+      copy:
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Download-Upgradeable-Packages "1";
+          APT::Periodic::AutocleanInterval "7";
+          APT::Periodic::Unattended-Upgrade "1";
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: '0644'
+      tags: updates
+
+  # ──────────────────────────────────────────────────────
+  # 8. APPARMOR
+  # ──────────────────────────────────────────────────────
+    - name: Activer AppArmor
+      systemd:
+        name: apparmor
+        enabled: yes
+        state: started
+      tags: apparmor
+
+  # ──────────────────────────────────────────────────────
+  # 9. QUALITÉ DES MOTS DE PASSE (PAM)
+  # ──────────────────────────────────────────────────────
+    - name: Configurer la politique de mots de passe
+      copy:
+        content: |
+          minlen = 14
+          dcredit = -1
+          ucredit = -1
+          ocredit = -1
+          lcredit = -1
+          maxrepeat = 3
+          maxclassrepeat = 4
+          gecoscheck = 1
+          dictcheck = 1
+        dest: /etc/security/pwquality.conf
+        mode: '0644'
+      tags: pam
+
+  # ──────────────────────────────────────────────────────
+  # 10. LIMITES DE RESSOURCES
+  # ──────────────────────────────────────────────────────
+    - name: Définir les limites système globales
+      copy:
+        content: |
+          # Désactiver les core dumps
+          *    hard core    0
+          # Limites fichiers ouverts (important pour K3s/containerd)
+          *    soft nofile  65536
+          *    hard nofile  65536
+          # Limites processus (prévient les fork bombs)
+          *    soft nproc   65535
+          *    hard nproc   65535
+          root soft nproc   unlimited
+          root hard nproc   unlimited
+        dest: /etc/security/limits.d/99-k3s-hardening.conf
+        mode: '0644'
+      tags: limits
+
+  # ──────────────────────────────────────────────────────
+  # 11. NTP SÉCURISÉ
+  # ──────────────────────────────────────────────────────
+    - name: Configurer des serveurs NTP de confiance
+      lineinfile:
+        path: /etc/systemd/timesyncd.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        create: no
+      loop:
+        - { regexp: '^#?NTP=',         line: "NTP={{ ntp_servers }}" }
+        - { regexp: '^#?FallbackNTP=', line: "FallbackNTP={{ ntp_fallback }}" }
+      notify: restart timesyncd
+      tags: ntp
+
+  # ──────────────────────────────────────────────────────
+  # 12. SERVICES INUTILES
+  # ──────────────────────────────────────────────────────
+    - name: Désactiver les services inutiles
+      systemd:
+        name: "{{ item }}"
+        enabled: no
+        state: stopped
+      loop:
+        - avahi-daemon
+        - cups
+        - cups-browsed
+        - isc-dhcp-server
+        - isc-dhcp-server6
+        - slapd
+        - nfs-kernel-server
+        - bind9
+        - vsftpd
+        - apache2
+        - dovecot
+        - smbd
+        - nmbd
+        - squid
+        - snmpd
+        - bluetooth
+      ignore_errors: yes
+      tags: services
+
+  # ──────────────────────────────────────────────────────
+  # 13. PERMISSIONS DE FICHIERS SENSIBLES
+  # ──────────────────────────────────────────────────────
+    - name: Corriger les permissions des fichiers sensibles
+      file:
+        path: "{{ item.path }}"
+        mode: "{{ item.mode }}"
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+      loop:
+        - { path: /etc/passwd,       mode: '0644' }
+        - { path: /etc/group,        mode: '0644' }
+        - { path: /etc/shadow,       mode: '0000' }
+        - { path: /etc/gshadow,      mode: '0000' }
+        - { path: /etc/crontab,      mode: '0600' }
+        - { path: /etc/cron.hourly,  mode: '0700' }
+        - { path: /etc/cron.daily,   mode: '0700' }
+        - { path: /etc/cron.weekly,  mode: '0700' }
+        - { path: /etc/cron.monthly, mode: '0700' }
+        - { path: /etc/cron.d,       mode: '0700' }
+      tags: permissions
+
+    - name: Sécuriser le répertoire GRUB
+      file:
+        path: /boot/grub
+        mode: '0700'
+        owner: root
+        group: root
+      tags: permissions
+
+  # ──────────────────────────────────────────────────────
+  # 14. DÉMARRER ET ACTIVER LES SERVICES DE SÉCURITÉ
+  # ──────────────────────────────────────────────────────
+    - name: Activer et démarrer les services de sécurité
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      loop:
+        - ufw
+        - fail2ban
+        - auditd
+        - unattended-upgrades
+      tags: services
+
+  # ──────────────────────────────────────────────────────
+  # HANDLERS
+  # ──────────────────────────────────────────────────────
+  handlers:
+    - name: restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted
+
+    - name: restart auditd
+      service:
+        name: auditd
+        state: restarted
+
+    - name: restart timesyncd
+      service:
+        name: systemd-timesyncd
+        state: restarted

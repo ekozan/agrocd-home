@@ -1,0 +1,123 @@
+# /etc/rancher/k3s/config.yaml — Configuration K3s durcie (nœud serveur)
+# Conforme K3s CIS Hardening Guide v1.8+ / Rancher 2.x
+#
+# Déploiement :
+#   sudo mkdir -p /etc/rancher/k3s
+#   sudo cp config.yaml /etc/rancher/k3s/config.yaml
+#   sudo cp audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml
+#   sudo systemctl restart k3s
+
+# ──────────────────────────────────────────────────────────────────────────
+# PROTECTION KERNEL
+# Kubelet refuse de démarrer si les paramètres sysctl du kernel diffèrent
+# des valeurs attendues. Le playbook Ansible positionne ces valeurs en amont.
+# ──────────────────────────────────────────────────────────────────────────
+protect-kernel-defaults: true
+
+# ──────────────────────────────────────────────────────────────────────────
+# CHIFFREMENT DES SECRETS AU REPOS (etcd)
+# Active le chiffrement AES-CBC des ressources Secret dans etcd.
+# La clé de chiffrement est dans /var/lib/rancher/k3s/server/cred/encryption-config.json
+# ──────────────────────────────────────────────────────────────────────────
+secrets-encryption: true
+
+# ──────────────────────────────────────────────────────────────────────────
+# KUBE-APISERVER
+# ──────────────────────────────────────────────────────────────────────────
+kube-apiserver-arg:
+  # Audit des appels API Kubernetes
+  - "audit-log-path=/var/log/k3s-audit.log"
+  - "audit-log-maxage=30"
+  - "audit-log-maxbackup=10"
+  - "audit-log-maxsize=100"
+  - "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml"
+
+  # Version TLS minimale et suites cryptographiques
+  - "tls-min-version=VersionTLS12"
+  - "tls-cipher-suites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+
+  # Vérifier que le ServiceAccount existe dans etcd avant de l'accepter
+  - "service-account-lookup=true"
+
+  # Timeout des requêtes API
+  - "request-timeout=300s"
+
+  # Désactiver le profiling (évite l'exposition d'infos de performance)
+  - "profiling=false"
+
+  # Désactiver l'accès anonyme à l'API
+  - "anonymous-auth=false"
+
+  # NodeRestriction : un kubelet ne peut modifier que son propre nœud/pod
+  - "enable-admission-plugins=NodeRestriction"
+
+# ──────────────────────────────────────────────────────────────────────────
+# KUBELET
+# ──────────────────────────────────────────────────────────────────────────
+kubelet-arg:
+  # Pas d'accès non authentifié au port de métriques
+  - "anonymous-auth=false"
+  - "authorization-mode=Webhook"
+
+  # Protection des sysctl kernel (cohérent avec protect-kernel-defaults)
+  - "protect-kernel-defaults=true"
+
+  # Désactiver le port lecture-seule non authentifié (10255)
+  - "read-only-port=0"
+
+  # Timeout de connexion streaming (kubectl exec/logs)
+  - "streaming-connection-idle-timeout=5m"
+
+  # Pas de limitation artificielle des événements API
+  - "event-qps=0"
+
+  # Rotation automatique des certificats kubelet
+  - "rotate-certificates=true"
+
+  # Version TLS minimale
+  - "tls-min-version=VersionTLS12"
+
+  # Activer les règles iptables pour le trafic K3s
+  - "make-iptables-util-chains=true"
+
+# ──────────────────────────────────────────────────────────────────────────
+# KUBE-CONTROLLER-MANAGER
+# ──────────────────────────────────────────────────────────────────────────
+kube-controller-manager-arg:
+  # Écouter uniquement en local (pas exposé sur l'interface réseau)
+  - "bind-address=127.0.0.1"
+
+  # Désactiver le profiling
+  - "profiling=false"
+
+  # Utiliser les credentials du ServiceAccount pour les sous-contrôleurs
+  - "use-service-account-credentials=true"
+
+  # Rotation des certificats kubelet côté serveur
+  - "feature-gates=RotateKubeletServerCertificate=true"
+
+  # GC agressif des pods terminés (évite l'accumulation de ressources)
+  - "terminated-pod-gc-threshold=10"
+
+# ──────────────────────────────────────────────────────────────────────────
+# KUBE-SCHEDULER
+# ──────────────────────────────────────────────────────────────────────────
+kube-scheduler-arg:
+  # Écouter uniquement en local
+  - "bind-address=127.0.0.1"
+
+  # Désactiver le profiling
+  - "profiling=false"
+
+# ──────────────────────────────────────────────────────────────────────────
+# NOTES D'INSTALLATION
+# ──────────────────────────────────────────────────────────────────────────
+# 1. Copier audit-policy.yaml dans /etc/rancher/k3s/ avant de démarrer K3s
+# 2. Après installation, vérifier le chiffrement des secrets :
+#      kubectl get secret -n kube-system -o yaml | grep -E "^  [a-zA-Z0-9+/]{60}"
+#      # Les valeurs chiffrées commencent par "k8s:enc:aescbc:v1:"
+# 3. Rotation des clés de chiffrement (si nécessaire) :
+#      k3s secrets-encrypt rotate
+#      k3s secrets-encrypt reencrypt
+# 4. Consulter les logs d'audit :
+#      tail -f /var/log/k3s-audit.log | jq .

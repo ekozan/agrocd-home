@@ -1,0 +1,86 @@
+---
+# default-deny ingress dans le namespace vault (HashiCorp Vault / OpenBao).
+# Vault détient tous les secrets du cluster : son isolation réseau est critique.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Trafic intra-namespace : Vault HA (raft peer-to-peer, agent sidecar ↔ vault).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Traefik → Vault UI/API (vault.server, accès HTTPS port 8200).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-vault
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 8200
+---
+# External-Secrets → Vault API (port 8200) pour résoudre les ExternalSecrets.
+# External-Secrets est le seul consommateur programmatique de Vault depuis le cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-secrets-to-vault
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-secrets
+      ports:
+        - protocol: TCP
+          port: 8200
+---
+# Cert-Manager → Vault PKI (port 8200) si l'issuer Vault est utilisé.
+# Commenté par défaut car la CA actuelle utilise my-ca-issuer (auto-signé),
+# pas l'issuer Vault. Décommenter si vous activez le Vault PKI issuer.
+# apiVersion: networking.k8s.io/v1
+# kind: NetworkPolicy
+# metadata:
+#   name: allow-certmanager-to-vault
+#   namespace: vault
+# spec:
+#   podSelector: {}
+#   policyTypes:
+#     - Ingress
+#   ingress:
+#     - from:
+#         - namespaceSelector:
+#             matchLabels:
+#               kubernetes.io/metadata.name: cert-manager
+#       ports:
+#         - protocol: TCP
+#           port: 8200
