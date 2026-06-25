@@ -23,6 +23,22 @@
     ntp_servers: "time.cloudflare.com time1.google.com"
     ntp_fallback: "ntp.ubuntu.com"
 
+    # ── CrowdSec : connexion au LAPI K8s ──────────────────────────────────
+    # Le LAPI CrowdSec K8s est exposé via NodePort 30808 (init/04-crowdsec-lapi-nodeport.yaml).
+    # Pointer vers n'importe quel nœud K3s ; utiliser l'IP d'un nœud serveur stable.
+    crowdsec_lapi_url: "http://10.10.0.1:30808"   # ← adapter à l'IP d'un nœud K3s
+
+    # Credentials générés par le Job K8s init/05-crowdsec-host-register.yaml
+    # Récupérer avec :
+    #   NODE=node1  # hostname tel que configuré dans HOST_NODES du Job
+    #   SAFE=$(echo "$NODE" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+    #   kubectl -n crowdsec get secret crowdsec-host-credentials \
+    #     -o jsonpath="{.data.machine-${SAFE}-password}" | base64 -d
+    #   kubectl -n crowdsec get secret crowdsec-host-credentials \
+    #     -o jsonpath="{.data.bouncer-${SAFE}-key}" | base64 -d
+    crowdsec_machine_password: ""   # ← renseigner par --extra-vars ou Ansible Vault
+    crowdsec_bouncer_api_key: ""    # ← renseigner par --extra-vars ou Ansible Vault
+
   # ──────────────────────────────────────────────────────
   # 1. PAQUETS DE SÉCURITÉ
   # ──────────────────────────────────────────────────────
@@ -268,6 +284,18 @@
         item: "{{ item[0] }}"
       tags: firewall
 
+    - name: UFW — LAPI CrowdSec NodePort (inter-nœuds uniquement)
+      ufw:
+        rule: allow
+        port: "30808"
+        proto: tcp
+        src: "{{ network }}"
+        comment: "CrowdSec LAPI NodePort (agents host → K8s LAPI)"
+      loop: "{{ trusted_networks }}"
+      loop_control:
+        loop_var: network
+      tags: firewall
+
     - name: UFW — MetalLB (LiveKit MatrixRTC)
       ufw:
         rule: allow
@@ -286,10 +314,33 @@
       tags: firewall
 
   # ──────────────────────────────────────────────────────
-  # 5. CROWDSEC — agent host + bouncer iptables
-  # Agent OS distinct du CrowdSec K8s : protège SSH et les
-  # services système via iptables, partage la même Console.
+  # 5. CROWDSEC — agent host + bouncer iptables → LAPI K8s
+  # Connecté au LAPI CrowdSec qui tourne déjà dans K3s
+  # (exposé via NodePort 30808, init/04-crowdsec-lapi-nodeport.yaml).
+  # Les credentials viennent du Job K8s init/05-crowdsec-host-register.yaml.
   # ──────────────────────────────────────────────────────
+    - name: CrowdSec — vérifier que les credentials sont fournis
+      assert:
+        that:
+          - crowdsec_lapi_url | length > 0
+          - crowdsec_machine_password | length > 0
+          - crowdsec_bouncer_api_key | length > 0
+        fail_msg: |
+          Les variables CrowdSec sont manquantes.
+          1. Appliquer init/04-crowdsec-lapi-nodeport.yaml et init/05-crowdsec-host-register.yaml
+          2. Récupérer les credentials :
+               SAFE=$(echo "{{ inventory_hostname }}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+               kubectl -n crowdsec get secret crowdsec-host-credentials \
+                 -o jsonpath="{.data.machine-${SAFE}-password}" | base64 -d
+               kubectl -n crowdsec get secret crowdsec-host-credentials \
+                 -o jsonpath="{.data.bouncer-${SAFE}-key}" | base64 -d
+          3. Relancer avec :
+               ansible-playbook ... --extra-vars \
+                 "crowdsec_lapi_url=http://10.10.0.1:30808 \
+                  crowdsec_machine_password=<pass> \
+                  crowdsec_bouncer_api_key=<key>"
+      tags: crowdsec
+
     - name: CrowdSec — télécharger la clé GPG
       get_url:
         url: https://packagecloud.io/crowdsec/crowdsec/gpgkey
@@ -333,6 +384,29 @@
       register: cscli_result
       changed_when: "'installed' in cscli_result.stdout | lower"
       failed_when: cscli_result.rc != 0
+      tags: crowdsec
+
+    # ── Configurer l'agent pour utiliser le LAPI K8s (mode agent distant) ──
+    - name: CrowdSec — credentials LAPI K8s (agent)
+      copy:
+        content: |
+          url: {{ crowdsec_lapi_url }}
+          login: host-{{ inventory_hostname | lower | replace('.', '-') }}
+          password: {{ crowdsec_machine_password }}
+        dest: /etc/crowdsec/local_api_credentials.yaml
+        mode: '0600'
+        owner: root
+        group: root
+      notify: restart crowdsec
+      tags: crowdsec
+
+    # Désactiver le LAPI local : l'agent pointe vers le LAPI K8s
+    - name: CrowdSec — désactiver le LAPI local dans config.yaml
+      lineinfile:
+        path: /etc/crowdsec/config.yaml
+        regexp: '^\s*listen_uri:'
+        line: '  #listen_uri: 127.0.0.1:8080  # désactivé — LAPI K8s utilisé'
+        backup: yes
       notify: restart crowdsec
       tags: crowdsec
 
@@ -352,7 +426,7 @@
       notify: restart crowdsec
       tags: crowdsec
 
-    - name: CrowdSec — acquisition auth.log et syslog (fallback fichier)
+    - name: CrowdSec — acquisition auth.log (fallback fichier)
       copy:
         content: |
           filenames:
@@ -363,6 +437,21 @@
         dest: /etc/crowdsec/acquis.d/system.yaml
         mode: '0644'
       notify: restart crowdsec
+      tags: crowdsec
+
+    # ── Configurer le bouncer pour utiliser le LAPI K8s ────────────────────
+    - name: CrowdSec — configurer le bouncer iptables (LAPI K8s)
+      lineinfile:
+        path: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: yes
+      loop:
+        - regexp: '^api_url:'
+          line: "api_url: {{ crowdsec_lapi_url }}"
+        - regexp: '^api_key:'
+          line: "api_key: {{ crowdsec_bouncer_api_key }}"
+      notify: restart crowdsec-firewall-bouncer
       tags: crowdsec
 
     - name: CrowdSec — activer et démarrer l'agent
@@ -653,6 +742,11 @@
     - name: restart crowdsec
       service:
         name: crowdsec
+        state: restarted
+
+    - name: restart crowdsec-firewall-bouncer
+      service:
+        name: crowdsec-firewall-bouncer
         state: restarted
 
     - name: restart auditd

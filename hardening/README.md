@@ -83,42 +83,81 @@ ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags sysctl
 | Services | `services` | Désactive avahi/cups/bluetooth/NFS/bind9… |
 | Permissions | `permissions` | shadow/gshadow 0000, cron 0600/0700 |
 
-### Architecture CrowdSec à deux niveaux
+### Architecture CrowdSec intégrée (host → LAPI K8s)
 
-Le playbook déploie un **agent CrowdSec au niveau OS**, distinct du CrowdSec Kubernetes :
+L'agent host et le bouncer iptables sont **connectés au LAPI CrowdSec qui tourne déjà dans K3s**, pas à une instance séparée.
 
 ```
-┌─ NŒUD UBUNTU ──────────────────────────────────────────────────────┐
-│                                                                      │
-│  CrowdSec agent (host)           CrowdSec agent (K8s DaemonSet)     │
-│  ├── lit : auth.log, syslog      ├── lit : access logs Traefik      │
-│  ├── détecte : bruteforce SSH,   ├── détecte : scan HTTP, CVE,      │
-│  │             scan ports OS     │             bruteforce web        │
-│  └── bouncer : iptables règles   └── bouncer : plugin Traefik       │
-│     (bloque avant TCP handshake)    (bloque avant réponse HTTP)     │
-│                                                                      │
-│  Les deux instances peuvent partager la Console CrowdSec            │
-│  (app.crowdsec.net) pour une vue centralisée.                       │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ NŒUD UBUNTU ───────────────────────────────────────────────────────┐
+│                                                                       │
+│  crowdsec agent (host)        crowdsec-firewall-bouncer-iptables      │
+│  ├── lit : auth.log, journald  ├── interroge LAPI → décisions        │
+│  ├── détecte : brute SSH,      └── ajoute règles iptables             │
+│  │             scan ports                                              │
+│  └── envoie alertes ─────────────────────────────────────┐           │
+│                                                           ↓           │
+└───────────────────────────────────────────────────────────────────────┘
+                                          NodePort :30808
+                                                │
+┌─ K3s ─────────────────────────────────────────▼──────────────────────┐
+│  CrowdSec LAPI (centralise TOUTES les décisions)                      │
+│  ├── ← alertes SSH/OS (agents host)                                   │
+│  ├── ← alertes HTTP (DaemonSet K8s, logs Traefik)                     │
+│  ├── → bouncer Traefik (bloque HTTP)                                  │
+│  └── → bouncer iptables host (bloque au niveau réseau)                │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-**Commandes utiles (agent host) :**
+### Pré-requis : déployer les ressources K8s
+
+Avant de lancer le playbook Ansible, appliquer dans K8s :
 
 ```bash
-# Décisions actives sur le nœud
-sudo cscli decisions list
+# 1. NodePort pour exposer le LAPI (wave 2, géré par ArgoCD init)
+kubectl apply -f init/04-crowdsec-lapi-nodeport.yaml
 
-# Alertes SSH détectées
-sudo cscli alerts list --type bruteforce
+# 2. Job de pré-enregistrement des nœuds (adapter HOST_NODES dans le fichier)
+#    → modifier init/05-crowdsec-host-register.yaml : env HOST_NODES
+kubectl apply -f init/05-crowdsec-host-register.yaml
+# ou laisser ArgoCD le synchroniser automatiquement
 
-# Métriques de l'agent
-sudo cscli metrics
+# 3. Récupérer les credentials générés (remplacer node1 par le hostname du nœud)
+SAFE=$(echo "node1" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+kubectl -n crowdsec get secret crowdsec-host-credentials \
+  -o jsonpath="{.data.machine-${SAFE}-password}" | base64 -d
+kubectl -n crowdsec get secret crowdsec-host-credentials \
+  -o jsonpath="{.data.bouncer-${SAFE}-key}" | base64 -d
+```
 
-# Bloquer manuellement une IP
-sudo cscli decisions add --ip 1.2.3.4 --duration 24h
+### Lancer le playbook avec les credentials
 
-# Enrôler dans la Console CrowdSec (facultatif, même clé que le K8s ou distincte)
-sudo cscli console enroll <CLE_ENROLEMENT>
+```bash
+ansible-playbook -i inventory.ini ubuntu-hardening.yml \
+  --extra-vars "crowdsec_lapi_url=http://10.10.0.1:30808 \
+                crowdsec_machine_password=<pass_node1> \
+                crowdsec_bouncer_api_key=<key_node1>" \
+  --limit node1
+
+# Ou avec Ansible Vault (recommandé en production)
+ansible-vault encrypt_string '<password>' --name 'crowdsec_machine_password'
+```
+
+**Commandes utiles (depuis le LAPI K8s centralisé) :**
+
+```bash
+LAPI=$(kubectl -n crowdsec get pod -l type=lapi -o jsonpath='{.items[0].metadata.name}')
+
+# Voir tous les agents enregistrés (K8s DaemonSet + agents host)
+kubectl -n crowdsec exec "$LAPI" -- cscli machines list
+
+# Voir tous les bouncers (Traefik + iptables host)
+kubectl -n crowdsec exec "$LAPI" -- cscli bouncers list
+
+# Décisions actives (appliquées partout : Traefik + iptables)
+kubectl -n crowdsec exec "$LAPI" -- cscli decisions list
+
+# Alertes SSH détectées par les agents host
+kubectl -n crowdsec exec "$LAPI" -- cscli alerts list --type bruteforce
 ```
 
 ### Points d'attention K3s

@@ -1,0 +1,29 @@
+# Service NodePort : expose le LAPI CrowdSec K8s aux agents CrowdSec installés
+# sur les nœuds hôtes Ubuntu.
+#
+# Port fixe 30808 sur chaque nœud K3s → les agents host s'y connectent via
+# http://<node-ip>:30808. L'accès est restreint aux réseaux de confiance par UFW
+# (règle ajoutée dans le playbook Ansible hardening/ansible/ubuntu-hardening.yml).
+#
+# Séparation des responsabilités :
+#   agents host  → envoient les alertes SSH/OS        → LAPI K8s
+#   K8s DaemonSet → analyse les logs Traefik           → LAPI K8s
+#   bouncer Traefik → bloque le trafic HTTP           ← LAPI K8s
+#   bouncer iptables (host) → bloque au niveau réseau ← LAPI K8s
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowdsec-lapi-nodeport
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  type: NodePort
+  selector:
+    type: lapi
+  ports:
+    - name: lapi
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30808

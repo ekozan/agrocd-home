@@ -1,0 +1,177 @@
+# Pré-enregistrement des agents et bouncers des nœuds hôtes Ubuntu dans le LAPI K8s.
+#
+# Ce Job crée dans le LAPI CrowdSec :
+#   1. Un compte machine par nœud  (crowdsec agent host → LAPI)
+#   2. Une clé bouncer par nœud    (firewall-bouncer iptables host → LAPI)
+#
+# Les credentials sont stockés dans le Secret `crowdsec-host-credentials`
+# (une clé par nœud) et lus par le playbook Ansible.
+#
+# Variables à adapter :
+#   HOST_NODES : liste des hostnames/IPs des nœuds (séparés par des espaces)
+#
+# Rejoué à chaque PostSync ; idempotent (teste l'existence avant de créer).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: crowdsec-host-register
+subjects:
+  - kind: ServiceAccount
+    name: crowdsec-host-register
+    namespace: crowdsec
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: crowdsec-host-register
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: register
+          image: alpine/kubectl:1.33.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOME
+              value: /tmp
+            # ── À adapter : liste des nœuds hôtes (hostname ou IP) ──────
+            # Exemples : "node1 node2 worker1" ou "192.168.1.10 192.168.1.11"
+            - name: HOST_NODES
+              value: "node1 node2"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              # Attendre le LAPI
+              kubectl -n crowdsec wait --for=condition=ready pod \
+                -l type=lapi --timeout=300s
+
+              LAPI=$(kubectl -n crowdsec get pod -l type=lapi \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              for NODE in $HOST_NODES; do
+                SAFE=$(echo "$NODE" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+                MACHINE="host-${SAFE}"
+                BOUNCER="host-${SAFE}-fw"
+
+                echo "=== Traitement du nœud : $NODE ($MACHINE) ==="
+
+                # ── Machine (agent CrowdSec host) ──────────────────────────
+                # Vérifier si déjà enregistrée
+                MACHINE_PASS=$(kubectl -n crowdsec get secret crowdsec-host-credentials \
+                  -o jsonpath="{.data.machine-${SAFE}-password}" 2>/dev/null \
+                  | base64 -d 2>/dev/null || true)
+
+                if [ -z "$MACHINE_PASS" ]; then
+                  MACHINE_PASS=$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                  echo "Création machine $MACHINE..."
+                  kubectl -n crowdsec exec "$LAPI" -- \
+                    cscli machines add "$MACHINE" --password "$MACHINE_PASS" --force
+                else
+                  echo "Machine $MACHINE déjà enregistrée — skip."
+                fi
+
+                # ── Bouncer (firewall iptables host) ───────────────────────
+                BOUNCER_KEY=$(kubectl -n crowdsec get secret crowdsec-host-credentials \
+                  -o jsonpath="{.data.bouncer-${SAFE}-key}" 2>/dev/null \
+                  | base64 -d 2>/dev/null || true)
+
+                if [ -z "$BOUNCER_KEY" ]; then
+                  BOUNCER_KEY=$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                  echo "Création bouncer $BOUNCER..."
+                  kubectl -n crowdsec exec "$LAPI" -- \
+                    cscli bouncers delete "$BOUNCER" >/dev/null 2>&1 || true
+                  kubectl -n crowdsec exec "$LAPI" -- \
+                    cscli bouncers add "$BOUNCER" --key "$BOUNCER_KEY"
+                else
+                  echo "Bouncer $BOUNCER déjà enregistré — skip."
+                fi
+
+                # ── Stocker / mettre à jour le Secret ─────────────────────
+                if kubectl -n crowdsec get secret crowdsec-host-credentials >/dev/null 2>&1; then
+                  kubectl -n crowdsec patch secret crowdsec-host-credentials \
+                    --type='json' \
+                    -p="[
+                      {\"op\":\"replace\",\"path\":\"/data/machine-${SAFE}-name\",\"value\":\"$(echo -n "$MACHINE" | base64)\"},
+                      {\"op\":\"replace\",\"path\":\"/data/machine-${SAFE}-password\",\"value\":\"$(echo -n "$MACHINE_PASS" | base64)\"},
+                      {\"op\":\"replace\",\"path\":\"/data/bouncer-${SAFE}-key\",\"value\":\"$(echo -n "$BOUNCER_KEY" | base64)\"}
+                    ]" 2>/dev/null || \
+                  kubectl -n crowdsec patch secret crowdsec-host-credentials \
+                    --type merge \
+                    -p "{\"data\":{
+                      \"machine-${SAFE}-name\":\"$(echo -n "$MACHINE" | base64)\",
+                      \"machine-${SAFE}-password\":\"$(echo -n "$MACHINE_PASS" | base64)\",
+                      \"bouncer-${SAFE}-key\":\"$(echo -n "$BOUNCER_KEY" | base64)\"
+                    }}"
+                else
+                  kubectl -n crowdsec create secret generic crowdsec-host-credentials \
+                    --from-literal="machine-${SAFE}-name=${MACHINE}" \
+                    --from-literal="machine-${SAFE}-password=${MACHINE_PASS}" \
+                    --from-literal="bouncer-${SAFE}-key=${BOUNCER_KEY}"
+                fi
+                echo "Credentials stockés dans Secret crowdsec-host-credentials (clé: machine/bouncer-${SAFE}-*)."
+              done
+
+              echo "Enregistrement terminé."
+              kubectl -n crowdsec exec "$LAPI" -- cscli machines list
+              kubectl -n crowdsec exec "$LAPI" -- cscli bouncers list
+      volumes:
+        - name: tmp
+          emptyDir: {}
