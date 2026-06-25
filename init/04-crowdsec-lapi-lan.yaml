@@ -1,0 +1,36 @@
+# Exposition de la LAPI CrowdSec aux NŒUDS (hors cluster) via MetalLB.
+#
+# Pourquoi : la protection SSH des hôtes Ubuntu (agent CrowdSec + firewall-bouncer
+# nftables, gérés par Ansible — cf. K3s-Config) doit parler à la MÊME LAPI que le
+# bouncer Traefik. La LAPI n'est qu'un ClusterIP (`crowdsec-service`) ; ce Service
+# LoadBalancer lui donne une IP LAN stable, annoncée à pfSense par MetalLB (BGP).
+#
+# Sécurité : accès restreint au VLAN admin/nœuds via loadBalancerSourceRanges.
+# Le trafic LAPI est en clair (http) — acceptable sur LAN de confiance ; pour du
+# TLS, activer `tls` dans les values du chart et passer les hôtes en https.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowdsec-lapi-lan
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"   # après le LAPI (wave 1)
+    # IP fixe choisie dans le pool MetalLB BGP `home` (10.99.0.0/24)
+    metallb.universe.tf/loadBalancerIPs: 10.99.0.10
+spec:
+  type: LoadBalancer
+  # LAN uniquement — n'autoriser que le VLAN des nœuds/admin
+  loadBalancerSourceRanges:
+    - 10.10.0.0/24
+  externalTrafficPolicy: Local
+  # ⚠️ Vérifier que ce sélecteur cible bien le pod LAPI :
+  #     kubectl -n crowdsec get pod -l type=lapi --show-labels
+  # (c'est le label utilisé par les Jobs d'enregistrement existants).
+  selector:
+    type: lapi
+  ports:
+    - name: lapi
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

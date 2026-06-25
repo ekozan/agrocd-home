@@ -1,0 +1,146 @@
+# Enregistrement des HÔTES Ubuntu (kube1, kube2) auprès du LAPI CrowdSec.
+#
+# Chaque nœud a besoin de DEUX identités côté LAPI :
+#   - une MACHINE : pour l'agent CrowdSec de l'hôte qui POUSSE des alertes SSH ;
+#   - un BOUNCER  : pour le cs-firewall-bouncer de l'hôte qui LIT les décisions.
+#
+# Ce Job (calqué sur 02-crowdsec-bouncer.yaml) génère des identifiants STABLES,
+# les stocke dans un Secret (`crowdsec-host-credentials`) — que l'opérateur
+# récupère pour les déposer sur les hôtes via Ansible — puis (ré)enregistre
+# machines et bouncers sur le LAPI de façon idempotente.
+#
+# Récupération côté Ansible :
+#   kubectl -n crowdsec get secret crowdsec-host-credentials \
+#     -o jsonpath='{.data.kube1-host\.password}' | base64 -d
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: crowdsec-host-register
+subjects:
+  - kind: ServiceAccount
+    name: crowdsec-host-register
+    namespace: crowdsec
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: crowdsec-host-register
+  namespace: crowdsec
+  annotations:
+    # Rejoué après chaque sync, une fois le LAPI prêt ; supprimé si succès
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: crowdsec-host-register
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: register
+          image: alpine/kubectl:1.33.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOME
+              value: /tmp
+            # Liste des hôtes à enregistrer (séparés par des espaces)
+            - name: HOSTS
+              value: "kube1 kube2"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "Attente du LAPI CrowdSec..."
+              kubectl -n crowdsec wait --for=condition=ready pod \
+                -l type=lapi --timeout=300s
+              LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "Pod LAPI : ${LAPI_POD}"
+
+              # --- 1. Identifiants stables, générés une seule fois ---------------
+              # Un Secret unique porte le mot de passe machine + la clé bouncer de
+              # chaque hôte. Généré au premier passage, réutilisé ensuite.
+              if ! kubectl -n crowdsec get secret crowdsec-host-credentials >/dev/null 2>&1; then
+                echo "Génération du Secret crowdsec-host-credentials..."
+                SET_ARGS=""
+                for H in ${HOSTS}; do
+                  PWD=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                  KEY=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                  SET_ARGS="${SET_ARGS} --from-literal=${H}-host.password=${PWD}"
+                  SET_ARGS="${SET_ARGS} --from-literal=${H}-fw.key=${KEY}"
+                done
+                # shellcheck disable=SC2086
+                kubectl -n crowdsec create secret generic crowdsec-host-credentials ${SET_ARGS}
+                echo "Secret généré."
+              else
+                echo "Secret crowdsec-host-credentials déjà présent."
+              fi
+
+              # --- 2. (Ré)enregistrement idempotent sur le LAPI -----------------
+              for H in ${HOSTS}; do
+                PWD=$(kubectl -n crowdsec get secret crowdsec-host-credentials \
+                  -o jsonpath="{.data.${H}-host\.password}" | base64 -d)
+                KEY=$(kubectl -n crowdsec get secret crowdsec-host-credentials \
+                  -o jsonpath="{.data.${H}-fw\.key}" | base64 -d)
+
+                # Machine (agent hôte) : delete + add => toujours le même mot de passe
+                kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                  cscli machines delete "${H}-host" >/dev/null 2>&1 || true
+                kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                  cscli machines add "${H}-host" --password "${PWD}" >/dev/null
+                echo "Machine '${H}-host' enregistrée."
+
+                # Bouncer firewall (hôte) : delete + add => toujours la même clé
+                kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                  cscli bouncers delete "${H}-fw" >/dev/null 2>&1 || true
+                kubectl -n crowdsec exec "${LAPI_POD}" -- \
+                  cscli bouncers add "${H}-fw" --key "${KEY}" >/dev/null
+                echo "Bouncer '${H}-fw' enregistré."
+              done
+              echo "Tous les hôtes sont rattachés à la LAPI."
+      volumes:
+        - name: tmp
+          emptyDir: {}
