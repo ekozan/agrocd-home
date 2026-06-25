@@ -443,7 +443,7 @@ ansible-playbook -i inventory.ini ubuntu-hardening.yml --check  # dry-run
 ansible-playbook -i inventory.ini ubuntu-hardening.yml
 ```
 
-Couverture : sysctl kernel (ASLR, BPF JIT hardening, ptrace, ICMP redirects…), SSH (clés uniquement, algos modernes), UFW (deny-all + ports K3s/Traefik), fail2ban, auditd, AppArmor, mises à jour sécurité automatiques.
+Couverture : sysctl kernel (ASLR, BPF JIT hardening, ptrace, ICMP redirects…), SSH (clés uniquement, algos modernes), UFW (deny-all + ports K3s/Traefik), **CrowdSec host** (agent + bouncer iptables — complément de niveau OS au CrowdSec K8s), auditd, AppArmor, mises à jour sécurité automatiques.
 
 ### K3s (`hardening/k3s/`)
 

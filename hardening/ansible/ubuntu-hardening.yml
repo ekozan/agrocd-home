@@ -37,7 +37,6 @@
       apt:
         name:
           - ufw
-          - fail2ban
           - auditd
           - audispd-plugins
           - unattended-upgrades
@@ -287,29 +286,98 @@
       tags: firewall
 
   # ──────────────────────────────────────────────────────
-  # 5. FAIL2BAN
+  # 5. CROWDSEC — agent host + bouncer iptables
+  # Agent OS distinct du CrowdSec K8s : protège SSH et les
+  # services système via iptables, partage la même Console.
   # ──────────────────────────────────────────────────────
-    - name: Configurer fail2ban
+    - name: CrowdSec — télécharger la clé GPG
+      get_url:
+        url: https://packagecloud.io/crowdsec/crowdsec/gpgkey
+        dest: /tmp/crowdsec-gpgkey.asc
+        mode: '0644'
+      tags: crowdsec
+
+    - name: CrowdSec — importer la clé GPG (dearmor)
+      shell: |
+        gpg --dearmor < /tmp/crowdsec-gpgkey.asc \
+          > /usr/share/keyrings/crowdsec-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/crowdsec-archive-keyring.gpg
+      tags: crowdsec
+
+    - name: CrowdSec — ajouter le dépôt apt
+      apt_repository:
+        repo: >-
+          deb [signed-by=/usr/share/keyrings/crowdsec-archive-keyring.gpg]
+          https://packagecloud.io/crowdsec/crowdsec/ubuntu
+          {{ ansible_distribution_release }} main
+        state: present
+        filename: crowdsec
+        update_cache: yes
+      tags: crowdsec
+
+    - name: CrowdSec — installer agent + bouncer iptables
+      apt:
+        name:
+          - crowdsec
+          - crowdsec-firewall-bouncer-iptables
+        state: present
+      tags: crowdsec
+
+    - name: CrowdSec — installer les collections SSH et Linux
+      command: cscli collections install {{ item }}
+      loop:
+        - crowdsecurity/sshd
+        - crowdsecurity/linux
+        - crowdsecurity/base-http-scenarios
+      register: cscli_result
+      changed_when: "'installed' in cscli_result.stdout | lower"
+      failed_when: cscli_result.rc != 0
+      notify: restart crowdsec
+      tags: crowdsec
+
+    - name: CrowdSec — acquisition SSH via journald (Ubuntu 22.04+)
       copy:
         content: |
-          [DEFAULT]
-          # Durée de ban : 1 heure par défaut, 24h pour SSH
-          bantime   = 3600
-          findtime  = 600
-          maxretry  = 5
-          backend   = systemd
-
-          [sshd]
-          enabled  = true
-          port     = {{ ssh_port }}
-          filter   = sshd
-          maxretry = 3
-          bantime  = 86400
-          findtime = 600
-        dest: /etc/fail2ban/jail.local
+          source: journalctl
+          journalctl_filter:
+            - "_SYSTEMD_UNIT=ssh.service"
+          labels:
+            type: syslog
+          group_wait: 5s
+          group_size: 20
+          flush_interval: 20s
+        dest: /etc/crowdsec/acquis.d/sshd.yaml
         mode: '0644'
-      notify: restart fail2ban
-      tags: fail2ban
+      notify: restart crowdsec
+      tags: crowdsec
+
+    - name: CrowdSec — acquisition auth.log et syslog (fallback fichier)
+      copy:
+        content: |
+          filenames:
+            - /var/log/auth.log
+            - /var/log/syslog
+          labels:
+            type: syslog
+        dest: /etc/crowdsec/acquis.d/system.yaml
+        mode: '0644'
+      notify: restart crowdsec
+      tags: crowdsec
+
+    - name: CrowdSec — activer et démarrer l'agent
+      systemd:
+        name: crowdsec
+        enabled: yes
+        state: started
+      tags: crowdsec
+
+    - name: CrowdSec — activer et démarrer le bouncer iptables
+      systemd:
+        name: crowdsec-firewall-bouncer
+        enabled: yes
+        state: started
+      tags: crowdsec
 
   # ──────────────────────────────────────────────────────
   # 6. AUDITD
@@ -569,7 +637,6 @@
         state: started
       loop:
         - ufw
-        - fail2ban
         - auditd
         - unattended-upgrades
       tags: services
@@ -583,9 +650,9 @@
         name: sshd
         state: restarted
 
-    - name: restart fail2ban
+    - name: restart crowdsec
       service:
-        name: fail2ban
+        name: crowdsec
         state: restarted
 
     - name: restart auditd

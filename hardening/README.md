@@ -10,7 +10,7 @@ Documentation et outils de durcissement pour les nœuds Ubuntu exécutant K3s/Ra
 │  ├── sysctl : kernel hardening (ASLR, BPF, ptrace…)    │
 │  ├── SSH : clés uniquement, algos modernes              │
 │  ├── UFW : ports K3s + Traefik uniquement               │
-│  ├── fail2ban : protection SSH brute-force              │
+│  ├── CrowdSec (host) : agent + bouncer iptables SSH      │
 │  ├── auditd : traçabilité des actions système           │
 │  ├── AppArmor : confinement des processus               │
 │  └── unattended-upgrades : patchs sécurité automatiques │
@@ -61,7 +61,7 @@ ansible-playbook -i inventory.ini ubuntu-hardening.yml
 
 # 4. Tags disponibles pour cibler une section
 ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags ssh
-ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags firewall,fail2ban
+ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags firewall,crowdsec
 ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags sysctl
 ```
 
@@ -69,11 +69,11 @@ ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags sysctl
 
 | Section | Tag | Description |
 |---------|-----|-------------|
-| Paquets | `packages` | Installe ufw/fail2ban/auditd, supprime telnet/ftp/rsh |
+| Paquets | `packages` | Installe ufw/auditd/apparmor, supprime telnet/ftp/rsh |
 | Kernel | `sysctl` | ASLR max, désactive ICMP redirects/RA, BPF JIT hardening, ptrace restrict |
 | SSH | `ssh` | Clés uniquement, TLS 1.2+, algos modernes (ed25519/chacha20/SHA-2) |
 | Pare-feu | `firewall` | UFW deny-all + ports K3s/Traefik/MetalLB uniquement |
-| fail2ban | `fail2ban` | SSH : 3 tentatives → ban 24h |
+| CrowdSec | `crowdsec` | Agent host + bouncer iptables + collections sshd/linux/base-http |
 | auditd | `auditd` | Secrets/RBAC/K3s-config/ptrace/modules kernel tracés |
 | Mises à jour | `updates` | Patchs sécurité automatiques quotidiens |
 | AppArmor | `apparmor` | Profils en mode enforce |
@@ -82,6 +82,44 @@ ansible-playbook -i inventory.ini ubuntu-hardening.yml --tags sysctl
 | NTP | `ntp` | Cloudflare + Google time servers |
 | Services | `services` | Désactive avahi/cups/bluetooth/NFS/bind9… |
 | Permissions | `permissions` | shadow/gshadow 0000, cron 0600/0700 |
+
+### Architecture CrowdSec à deux niveaux
+
+Le playbook déploie un **agent CrowdSec au niveau OS**, distinct du CrowdSec Kubernetes :
+
+```
+┌─ NŒUD UBUNTU ──────────────────────────────────────────────────────┐
+│                                                                      │
+│  CrowdSec agent (host)           CrowdSec agent (K8s DaemonSet)     │
+│  ├── lit : auth.log, syslog      ├── lit : access logs Traefik      │
+│  ├── détecte : bruteforce SSH,   ├── détecte : scan HTTP, CVE,      │
+│  │             scan ports OS     │             bruteforce web        │
+│  └── bouncer : iptables règles   └── bouncer : plugin Traefik       │
+│     (bloque avant TCP handshake)    (bloque avant réponse HTTP)     │
+│                                                                      │
+│  Les deux instances peuvent partager la Console CrowdSec            │
+│  (app.crowdsec.net) pour une vue centralisée.                       │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Commandes utiles (agent host) :**
+
+```bash
+# Décisions actives sur le nœud
+sudo cscli decisions list
+
+# Alertes SSH détectées
+sudo cscli alerts list --type bruteforce
+
+# Métriques de l'agent
+sudo cscli metrics
+
+# Bloquer manuellement une IP
+sudo cscli decisions add --ip 1.2.3.4 --duration 24h
+
+# Enrôler dans la Console CrowdSec (facultatif, même clé que le K8s ou distincte)
+sudo cscli console enroll <CLE_ENROLEMENT>
+```
 
 ### Points d'attention K3s
 
