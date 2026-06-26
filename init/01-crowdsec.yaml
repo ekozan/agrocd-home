@@ -63,12 +63,15 @@ spec:
             name: crowdsec-lapi-secrets
         # API locale (LAPI) : centralise les décisions, interrogée par le bouncer Traefik
         lapi:
+          # Priorité « socle plateforme » : le LAPI CrowdSec garde les décisions
+          priorityClassName: homelab-platform
           # Persistance des décisions et des clés bouncers enregistrées
           persistentVolume:
             data:
               enabled: true
               size: 1Gi
         appsec:
+          priorityClassName: homelab-platform
           enabled: true
           acquisitions:
             - source: appsec
@@ -83,6 +86,7 @@ spec:
               value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
+          priorityClassName: homelab-platform
           # Collections de parsers/scénarios installées au démarrage
           env:
             - name: COLLECTIONS

@@ -109,6 +109,70 @@ Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment 
 
 ---
 
+## Priorité des services & résilience à la perte d'un node
+
+En cas de perte d'un node k3s (ou de pression sur les ressources), le scheduler
+doit pouvoir replanifier **en premier** les services les plus importants et, si
+la capacité restante est juste, **évincer** (preemption) les services moins
+importants pour leur faire de la place. C'est le rôle des **PriorityClasses**,
+définies une fois pour tout le cluster dans
+[`init/04-priorityclasses.yaml`](init/04-priorityclasses.yaml) (synchronisées en
+`sync-wave -10` pour exister avant les workloads).
+
+> ⚠️ **Important** : une PriorityClass ne maintient **pas** un service à 1
+> réplique en ligne *pendant* la panne — le pod doit d'abord être recréé sur un
+> node sain. La priorité ne fait qu'**accélérer et prioriser** cette recréation.
+> Pour une continuité réelle (zéro coupure), il faut **en plus** ≥2 répliques
+> réparties sur des nodes distincts (`replicas` + `topologySpreadConstraints`),
+> et pour PostgreSQL passer le Cluster CNPG `pg-main` à `instances: 3`.
+
+### Hiérarchie
+
+| Classe | Valeur | Pour quoi | Services |
+|--------|-------:|-----------|----------|
+| `homelab-platform` | `100000` | Socle sans lequel rien ne tourne | Traefik, Cert-Manager, External-Secrets, Kubernetes-Replicator, CrowdSec (agent/lapi/appsec), opérateur CloudNativePG |
+| `homelab-data` | `90000` | Données stateful | PostgreSQL `pg-main` (CNPG) |
+| `homelab-identity` | `80000` | Identité OIDC | Zitadel *(voir limitation ci-dessous)* |
+| `homelab-app` | `50000` | Applications exposées | Gitea, Coder, Tuwunel/Matrix, Element Call, LiteLLM *(voir limitation)* |
+| `homelab-low` | `10000` | Annexes / best-effort | UI web CrowdSec, jobs ponctuels |
+| *(défaut)* | `0` | Pods sans classe | tout le reste |
+
+Les classes système `system-cluster-critical` (`2000000000`) et
+`system-node-critical` (`2000001000`) de Kubernetes/k3s restent **au-dessus** de
+toutes les classes homelab : les composants du plan de contrôle gardent la
+priorité maximale. Aucune classe homelab n'est `globalDefault` : un pod sans
+`priorityClassName` reste à `0`, donc sous tout le reste (comportement voulu).
+
+### Application par service
+
+La clé exacte dépend de chaque chart Helm (vérifiée contre les `values.yaml`) :
+
+| Service | Où | Clé |
+|---------|----|-----|
+| Traefik | `init/00-traefik3.yaml` | `priorityClassName` (top-level) |
+| CrowdSec | `init/01-crowdsec.yaml` | `agent/lapi/appsec.priorityClassName` |
+| Cert-Manager | `infra/01 certmanager.yaml` | `global.priorityClassName` |
+| External-Secrets | `infra/01 external-secrets.yaml` | `priorityClassName` + `webhook.` + `certController.` |
+| Kubernetes-Replicator | `infra/01 Kubernetereplicator.yaml` | `priorityClassName` (top-level) |
+| Opérateur CNPG | `infra/03-cnpg-operator.yaml` | `priorityClassName` (top-level) |
+| PostgreSQL `pg-main` | `infra/postgres/01-cluster.yaml` | `spec.priorityClassName` (CRD Cluster) |
+| Coder | `dev/coder.yaml` | `coder.priorityClassName` |
+| Gitea | `infra/06 gitea.yaml` | `priorityClassName` (top-level) |
+| Tuwunel / Element Call / UI CrowdSec | manifests bruts | `spec.template.spec.priorityClassName` |
+
+### Limitations connues
+
+- **Zitadel** et **LiteLLM** : leurs charts Helm **n'exposent pas** de clé
+  `priorityClassName` (schéma de valeurs strict). Leurs pods restent donc à la
+  priorité par défaut (`0`). Pour les classer, il faudrait soit un correctif
+  upstream du chart, soit un post-render Kustomize, soit une mutation par
+  admission (Kyverno) — **hors périmètre** de cette base.
+- Tous les services critiques tournent aujourd'hui en **1 réplique** (et
+  `pg-main` en `instances: 1`). La priorité accélère leur reprise après une
+  panne mais n'élimine pas la coupure : voir l'encadré ci-dessus pour la HA.
+
+---
+
 ## Structure du repo
 
 ```

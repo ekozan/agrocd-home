@@ -115,6 +115,8 @@ spec:
       labels:
         app: tuwunel
     spec:
+      # Priorité « application » (cf. init/04-priorityclasses)
+      priorityClassName: homelab-app
       # ── Durcissement (à activer après test) ─────────────────────────────
       # Tuwunel écrit sur /data (RocksDB, PVC Longhorn) et /media (PVC NFS).
       # runAsNonRoot impose un fsGroup pour que l'UID non-root puisse écrire,

@@ -13,6 +13,12 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:16
   primaryUpdateStrategy: unsupervised
 
+  # Priorité « données » : la base centralisée est replanifiée juste après le
+  # socle plateforme et avant les applications (cf. init/04-priorityclasses).
+  # NB : instances=1 → la perte d'un node implique une courte coupure le temps
+  # de recréer le pod ; passer à instances=3 pour une vraie HA PostgreSQL.
+  priorityClassName: homelab-data
+
   # Secret superuser `postgres` généré par CNPG (pg-main-superuser).
   # Utilisé par l'admin Zitadel et par les Jobs de migration.
   enableSuperuserAccess: true

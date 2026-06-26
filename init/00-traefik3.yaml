@@ -16,6 +16,9 @@ spec:
     helm:
       releaseName: traefik3
       valuesObject:
+        # Priorité « socle plateforme » : l'ingress doit être replanifié en
+        # premier et peut évincer des charges moins importantes (cf. init/04).
+        priorityClassName: homelab-platform
         # Logs d'accès requis pour que l'agent CrowdSec parse le trafic
         logs:
           access:

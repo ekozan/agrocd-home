@@ -15,7 +15,11 @@ spec:
     targetRevision: 1.15.*
     helm:
       releaseName: cert-manager
-      valuesObject:    
+      valuesObject:
+        # Priorité « socle plateforme » appliquée à tous les pods cert-manager
+        # (controller, webhook, cainjector) via la valeur globale du chart.
+        global:
+          priorityClassName: homelab-platform
         crds:
           enabled: true
   destination:

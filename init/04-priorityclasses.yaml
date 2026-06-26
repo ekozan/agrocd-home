@@ -1,0 +1,91 @@
+# Hiérarchie de PriorityClasses du cluster homelab.
+#
+# Objectif : en cas de perte d'un node k3s (ou de pression sur les ressources),
+# le scheduler doit replanifier EN PREMIER les services les plus importants et,
+# si la capacité restante est juste, ÉVINCER (preemption) les services moins
+# importants pour faire de la place aux plus critiques.
+#
+# ⚠️ Une PriorityClass NE garde PAS un service à 1 réplique en ligne PENDANT la
+# panne : le pod doit d'abord être recréé sur un node sain. La priorité ne fait
+# qu'accélérer cette recréation et la rendre prioritaire sur les autres charges.
+# Pour une continuité réelle (zéro coupure), il faut en plus ≥2 répliques
+# réparties sur des nodes distincts (replicas + topologySpreadConstraints).
+#
+# Échelle (plus la valeur est haute, plus le pod est prioritaire) :
+#   2000001000  system-node-critical     (réservé Kubernetes/k3s)
+#   2000000000  system-cluster-critical  (réservé Kubernetes/k3s)
+#      100000   homelab-platform   ← socle : ingress, secrets, certs, opérateurs
+#       90000   homelab-data       ← données : PostgreSQL pg-main
+#       80000   homelab-identity   ← identité : Zitadel (IdP OIDC)
+#       50000   homelab-app        ← applications exposées : Gitea, Coder, Chat
+#       10000   homelab-low        ← annexes : UI, jobs, best-effort
+#           0   (défaut)           ← pods sans classe (priorité la plus basse)
+#
+# Aucune classe n'est globalDefault : un pod sans priorityClassName reste à 0,
+# donc en-dessous de tout le reste (comportement voulu pour les charges non
+# classées). preemptionPolicy par défaut = PreemptLowerPriority.
+#
+# Ces objets sont cluster-scoped et synchronisés tôt (sync-wave -10) par l'App
+# `clusterinit` afin d'exister AVANT que les workloads ne les référencent.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+value: 100000
+globalDefault: false
+description: >-
+  Socle plateforme (Traefik, Vault/OpenBao, Cert-Manager, External-Secrets,
+  Kubernetes-Replicator, CrowdSec, opérateur CloudNativePG). Sans lui, aucun
+  autre service ne peut fonctionner.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+value: 90000
+globalDefault: false
+description: >-
+  Données stateful (instance PostgreSQL centralisée pg-main). Sa perte prive
+  Zitadel, Gitea, Coder et LiteLLM de leur base.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-identity
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+value: 80000
+globalDefault: false
+description: >-
+  Fournisseur d'identité OIDC (Zitadel). Authentifie Gitea, Coder, Tuwunel et
+  les middlewares Traefik oidc-auth.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+value: 50000
+globalDefault: false
+description: >-
+  Applications métier exposées (Gitea, Coder, Tuwunel/Matrix, Element Call,
+  LiteLLM). Importantes mais tolèrent une courte replanification après les
+  couches plus basses.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-low
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+value: 10000
+globalDefault: false
+description: >-
+  Charges annexes / best-effort (UI web CrowdSec, jobs ponctuels). Premières
+  candidates à l'éviction si la capacité manque.

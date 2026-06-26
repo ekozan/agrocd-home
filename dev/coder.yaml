@@ -32,6 +32,8 @@ spec:
       releaseName: coder
       valuesObject:    
         coder:
+          # Priorité « application » (cf. init/04-priorityclasses)
+          priorityClassName: homelab-app
           envUseClusterAccessURL: true
           replicaCount: 1
           workspaceProxy: false

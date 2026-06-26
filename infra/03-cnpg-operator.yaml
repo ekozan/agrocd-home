@@ -28,6 +28,9 @@ spec:
     helm:
       releaseName: cnpg
       valuesObject:
+        # Priorité « socle plateforme » : l'opérateur pilote le failover de
+        # pg-main ; il doit rester ordonnançable.
+        priorityClassName: homelab-platform
         crds:
           create: true
         config:

@@ -15,6 +15,10 @@ spec:
     targetRevision: 2.10.*
     helm:
       releaseName: kubernetes-replicator
+      valuesObject:
+        # Priorité « socle plateforme » : réplique les Secrets/CA partagés
+        # (ffd-link-tls, pg-main-ca…) entre namespaces.
+        priorityClassName: homelab-platform
   destination:
     server: "https://kubernetes.default.svc"
     namespace: kube-system

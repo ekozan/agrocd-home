@@ -30,7 +30,11 @@ spec:
     targetRevision: 12.4.0
     helm:
       releaseName: gitea
-      valuesObject: 
+      valuesObject:
+        # Priorité « application » (cf. init/04-priorityclasses). Clé top-level
+        # documentée du chart Gitea ; vérifier via `helm show values gitea`
+        # si la valeur n'est pas prise en compte.
+        priorityClassName: homelab-app
         image:
           tag: 1.25.3
         ingress:

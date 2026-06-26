@@ -178,6 +178,9 @@ spec:
       labels:
         app: crowdsec-web-ui
     spec:
+      # Priorité « basse » : UI annexe, première candidate à l'éviction si la
+      # capacité manque après une perte de node (cf. init/04-priorityclasses).
+      priorityClassName: homelab-low
       # L'image tourne en utilisateur non-root `node` (UID 1000) ; fsGroup pour
       # que le volume Longhorn (/app/data) soit inscriptible.
       securityContext:
