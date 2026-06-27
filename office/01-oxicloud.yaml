@@ -89,7 +89,7 @@ spec:
     spec:
       containers:
         - name: oxicloud
-          image: diocrafts/oxicloud:latest
+          image: diocrafts/oxicloud:0.8.0
           ports:
             - containerPort: 8086
               name: http
@@ -154,6 +154,18 @@ spec:
                 secretKeyRef:
                   name: oxicloud-wopi
                   key: secret
+            # ── Compatibilité Nextcloud / ownCloud ──────────────────────────
+            # Expose l'API/WebDAV façon Nextcloud : les clients desktop/mobile
+            # Nextcloud ET ownCloud (même lignée de protocole) peuvent
+            # synchroniser contre OxiCloud. `instance_id` identifie l'instance
+            # auprès des clients (le figer évite une resynchro complète) ;
+            # `version` est la version Nextcloud annoncée pour la compat client.
+            - name: OXICLOUD_NEXTCLOUD_ENABLED
+              value: "true"
+            - name: OXICLOUD_NEXTCLOUD_INSTANCE_ID
+              value: "ffd-oxicloud"
+            - name: OXICLOUD_NEXTCLOUD_VERSION
+              value: "28.0.4"
           volumeMounts:
             - name: storage
               mountPath: /app/storage

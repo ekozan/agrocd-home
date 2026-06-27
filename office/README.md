@@ -6,8 +6,11 @@ pour l'édition en ligne via le protocole **WOPI**.
 
 | Service | URL | Image |
 |---------|-----|-------|
-| OxiCloud | `https://cloud.ffd.link` | `diocrafts/oxicloud:latest` |
-| Euro-Office | `https://office.ffd.link` | `ghcr.io/euro-office/documentserver:latest` |
+| OxiCloud | `https://cloud.ffd.link` | `diocrafts/oxicloud:0.8.0` |
+| Euro-Office | `https://office.ffd.link` | `ghcr.io/euro-office/documentserver:v9.3.2` |
+
+> Images **figées** sur une version précise (GitOps reproductible). Pour mettre
+> à jour : bumper le tag dans `01-oxicloud.yaml` / `02-euro-office.yaml`.
 
 Déployé par l'Application ArgoCD `office.yaml` (path `office/`).
 
@@ -78,3 +81,18 @@ OxiCloud utilise le **code flow confidentiel** (avec `client_secret`).
   que cette clé est bien identique des deux côtés.
 - **Euro-Office** embarque postgres/rabbitmq/redis (supervisord) → premier
   démarrage lent (~1-2 min) ; les probes `/healthcheck` tolèrent ce délai.
+
+## Compatibilité Nextcloud / ownCloud
+
+OxiCloud expose une **API/WebDAV compatible Nextcloud** (`OXICLOUD_NEXTCLOUD_*`).
+Les clients de synchronisation **Nextcloud** comme **ownCloud** (desktop, Android,
+iOS — même lignée de protocole) peuvent donc s'y connecter :
+
+- **URL serveur** : `https://cloud.ffd.link`
+- **Identifiants** : compte OxiCloud (login/mot de passe ; le SSO OIDC reste pour
+  le web).
+- `OXICLOUD_NEXTCLOUD_INSTANCE_ID` (`ffd-oxicloud`) identifie l'instance auprès
+  des clients — **ne pas le changer** après les premières synchros (sinon resync
+  complète). `OXICLOUD_NEXTCLOUD_VERSION` est la version Nextcloud annoncée pour
+  la négociation de compatibilité client.
+

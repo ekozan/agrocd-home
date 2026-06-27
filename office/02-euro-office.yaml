@@ -63,7 +63,7 @@ spec:
     spec:
       containers:
         - name: documentserver
-          image: ghcr.io/euro-office/documentserver:latest
+          image: ghcr.io/euro-office/documentserver:v9.3.2
           ports:
             - containerPort: 80
               name: http

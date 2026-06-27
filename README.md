@@ -210,8 +210,8 @@ agrocd-home/
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
-| OxiCloud | `diocrafts/oxicloud` | latest | oxicloud |
-| Euro-Office | `ghcr.io/euro-office/documentserver` | latest | euro-office |
+| OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
+| Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
 
 ---
 
