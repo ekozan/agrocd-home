@@ -133,8 +133,8 @@ définies une fois pour tout le cluster dans
 | `homelab-platform` | `100000` | Socle sans lequel rien ne tourne | Traefik, Cert-Manager, External-Secrets, Kubernetes-Replicator, CrowdSec (agent/lapi/appsec), opérateur CloudNativePG |
 | `homelab-data` | `90000` | Données stateful | PostgreSQL `pg-main` (CNPG) |
 | `homelab-identity` | `80000` | Identité OIDC | Zitadel *(voir limitation ci-dessous)* |
-| `homelab-app` | `50000` | Applications exposées importantes | Gitea, Tuwunel/Matrix |
-| `homelab-low` | `10000` | Non critiques / best-effort | Coder, Element Call (MatrixRTC), UI web CrowdSec, jobs ponctuels |
+| `homelab-app` | `50000` | Applications exposées importantes | Gitea |
+| `homelab-low` | `10000` | Non critiques / best-effort | Coder, Tuwunel/Matrix, Element Call (MatrixRTC), UI web CrowdSec, jobs ponctuels |
 | *(défaut)* | `0` | Pods sans classe | tout le reste |
 
 Les classes système `system-cluster-critical` (`2000000000`) et
@@ -158,7 +158,7 @@ La clé exacte dépend de chaque chart Helm (vérifiée contre les `values.yaml`
 | PostgreSQL `pg-main` | `infra/postgres/01-cluster.yaml` | `spec.priorityClassName` (CRD Cluster) |
 | Coder *(homelab-low)* | `dev/coder.yaml` | `coder.priorityClassName` |
 | Gitea | `infra/06 gitea.yaml` | `priorityClassName` (top-level) |
-| Tuwunel *(homelab-app)* / Element Call *(homelab-low)* / UI CrowdSec *(homelab-low)* | manifests bruts | `spec.template.spec.priorityClassName` |
+| Tuwunel *(homelab-low)* / Element Call *(homelab-low)* / UI CrowdSec *(homelab-low)* | manifests bruts | `spec.template.spec.priorityClassName` |
 
 ### Limitations connues
 
