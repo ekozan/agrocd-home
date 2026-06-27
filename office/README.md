@@ -11,6 +11,13 @@ pour l'édition en ligne via le protocole **WOPI**.
 
 > Images **figées** sur une version précise (GitOps reproductible). Pour mettre
 > à jour : bumper le tag dans `01-oxicloud.yaml` / `02-euro-office.yaml`.
+>
+> **OxiCloud — mainteneur** : le projet est désormais porté par **AtalayaLabs**
+> (ex-DioCrafts) — repo `github.com/AtalayaLabs/OxiCloud`. En revanche l'image
+> Docker reste publiée sous le namespace Docker Hub **`diocrafts/oxicloud`**
+> (le `docker-compose.yml` upstream l'utilise toujours ; `atalayalabs/oxicloud`
+> n'existe pas sur Docker Hub). On garde donc `diocrafts/oxicloud` tant qu'aucune
+> image n'est republiée sous `atalayalabs`.
 
 Déployé par l'Application ArgoCD `office.yaml` (path `office/`).
 
