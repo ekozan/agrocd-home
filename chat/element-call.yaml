@@ -152,8 +152,9 @@ spec:
       labels:
         app: livekit
     spec:
-      # Priorité « application » (cf. init/04-priorityclasses)
-      priorityClassName: homelab-app
+      # Priorité « basse » : visio MatrixRTC, non critique → évincé en premier
+      # si la capacité manque après une perte de node (cf. init/04).
+      priorityClassName: homelab-low
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -287,8 +288,9 @@ spec:
       labels:
         app: lk-jwt-service
     spec:
-      # Priorité « application » (cf. init/04-priorityclasses)
-      priorityClassName: homelab-app
+      # Priorité « basse » : visio MatrixRTC, non critique → évincé en premier
+      # si la capacité manque après une perte de node (cf. init/04).
+      priorityClassName: homelab-low
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

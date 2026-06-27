@@ -32,8 +32,9 @@ spec:
       releaseName: coder
       valuesObject:    
         coder:
-          # Priorité « application » (cf. init/04-priorityclasses)
-          priorityClassName: homelab-app
+          # Priorité « basse » : IDE dev, non critique → évincé en premier si
+          # la capacité manque après une perte de node (cf. init/04).
+          priorityClassName: homelab-low
           envUseClusterAccessURL: true
           replicaCount: 1
           workspaceProxy: false

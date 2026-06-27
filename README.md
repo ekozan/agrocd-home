@@ -133,8 +133,8 @@ définies une fois pour tout le cluster dans
 | `homelab-platform` | `100000` | Socle sans lequel rien ne tourne | Traefik, Cert-Manager, External-Secrets, Kubernetes-Replicator, CrowdSec (agent/lapi/appsec), opérateur CloudNativePG |
 | `homelab-data` | `90000` | Données stateful | PostgreSQL `pg-main` (CNPG) |
 | `homelab-identity` | `80000` | Identité OIDC | Zitadel *(voir limitation ci-dessous)* |
-| `homelab-app` | `50000` | Applications exposées | Gitea, Coder, Tuwunel/Matrix, Element Call, LiteLLM *(voir limitation)* |
-| `homelab-low` | `10000` | Annexes / best-effort | UI web CrowdSec, jobs ponctuels |
+| `homelab-app` | `50000` | Applications exposées importantes | Gitea, Tuwunel/Matrix |
+| `homelab-low` | `10000` | Non critiques / best-effort | Coder, Element Call (MatrixRTC), UI web CrowdSec, jobs ponctuels |
 | *(défaut)* | `0` | Pods sans classe | tout le reste |
 
 Les classes système `system-cluster-critical` (`2000000000`) et
@@ -156,17 +156,21 @@ La clé exacte dépend de chaque chart Helm (vérifiée contre les `values.yaml`
 | Kubernetes-Replicator | `infra/01 Kubernetereplicator.yaml` | `priorityClassName` (top-level) |
 | Opérateur CNPG | `infra/03-cnpg-operator.yaml` | `priorityClassName` (top-level) |
 | PostgreSQL `pg-main` | `infra/postgres/01-cluster.yaml` | `spec.priorityClassName` (CRD Cluster) |
-| Coder | `dev/coder.yaml` | `coder.priorityClassName` |
+| Coder *(homelab-low)* | `dev/coder.yaml` | `coder.priorityClassName` |
 | Gitea | `infra/06 gitea.yaml` | `priorityClassName` (top-level) |
-| Tuwunel / Element Call / UI CrowdSec | manifests bruts | `spec.template.spec.priorityClassName` |
+| Tuwunel *(homelab-app)* / Element Call *(homelab-low)* / UI CrowdSec *(homelab-low)* | manifests bruts | `spec.template.spec.priorityClassName` |
 
 ### Limitations connues
 
-- **Zitadel** et **LiteLLM** : leurs charts Helm **n'exposent pas** de clé
-  `priorityClassName` (schéma de valeurs strict). Leurs pods restent donc à la
-  priorité par défaut (`0`). Pour les classer, il faudrait soit un correctif
-  upstream du chart, soit un post-render Kustomize, soit une mutation par
-  admission (Kyverno) — **hors périmètre** de cette base.
+- **LiteLLM** : non critique, **volontairement non prioritaire**. Son chart Helm
+  n'expose de toute façon pas de clé `priorityClassName`, donc ses pods restent
+  à la priorité par défaut (`0`) — soit encore en-dessous de `homelab-low`, ce
+  qui correspond au comportement voulu (premier évincé).
+- **Zitadel** : son chart Helm **n'expose pas** de clé `priorityClassName`
+  (schéma de valeurs strict), ses pods restent donc à la priorité par défaut
+  (`0`) alors qu'on les voudrait en `homelab-identity`. Pour le classer, il
+  faudrait soit un correctif upstream du chart, soit un post-render Kustomize,
+  soit une mutation par admission (Kyverno) — **hors périmètre** de cette base.
 - Tous les services critiques tournent aujourd'hui en **1 réplique** (et
   `pg-main` en `instances: 1`). La priorité accélère leur reprise après une
   panne mais n'élimine pas la coupure : voir l'encadré ci-dessus pour la HA.
