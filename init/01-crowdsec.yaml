@@ -55,6 +55,16 @@ spec:
                 - crowdsecurity/generic-*
               outofband_rules:
                 - crowdsecurity/experimental-*
+              # WebDAV / synchro Nextcloud-ownCloud (OxiCloud) : les règles
+              # génériques + base-config (method enforcement type CRS) bloquent
+              # les verbes WebDAV (PROPFIND, MKCOL, MOVE, REPORT, LOCK…) et
+              # peuvent matcher à tort le corps binaire d'un upload (PUT).
+              # On lève le BLOCAGE (remédiation -> allow) sur la seule surface
+              # de synchro d'OxiCloud ; la détection out-of-band reste loggée.
+              on_match:
+                - filter: "IsInBand && (req.URL.Path startsWith '/remote.php/' || req.URL.Path startsWith '/ocs/' || req.URL.Path == '/status.php')"
+                  apply:
+                    - SetRemediation('allow')
           scenarios:
             http-401-bf.yaml: |
               type: leaky
@@ -88,7 +98,9 @@ spec:
               listen_addr: "0.0.0.0:7422"
               path: /
               
-              appsec_config: crowdsecurity/appsec-default
+              # Config custom (intention d'origine du repo) : ajoute le hook
+              # on_match WebDAV ci-dessus aux règles base-config/vpatch/generic.
+              appsec_config: custom/full-appsec
               labels:
                 type: appsec
           env:

@@ -323,6 +323,16 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `my/matrix-whitelist` | Fédération/clients Matrix (`/_matrix/`, `/_synapse/`, well-known) |
 | `my/office-whitelist` | Sync OxiCloud compatible Nextcloud/ownCloud (`/remote.php/`, `/ocs/`, `/status.php`) + assets/API du document server Euro-Office (`/web-apps/`, `/coauthoring/`, `/hosting/`…) |
 
+> Ces whitelists agissent au niveau du **bouncer/LAPI** (sur les logs Traefik).
+> Le **WAF AppSec** (inspection inline) est traité à part : les règles
+> `base-config`/`generic-*` (type CRS) bloqueraient les verbes WebDAV
+> (`PROPFIND`, `MKCOL`, `MOVE`, `REPORT`, `LOCK`…) et pourraient matcher à tort
+> le corps binaire d'un upload. La config AppSec active (`custom/full-appsec`)
+> contient donc un hook `on_match` qui passe la remédiation à `allow` sur la
+> surface de synchro OxiCloud (`/remote.php/`, `/ocs/`, `/status.php`) — la
+> détection out-of-band reste loggée, seul le blocage est levé. *(Euro-Office
+> n'utilise que des verbes HTTP standards → pas d'exclusion AppSec nécessaire.)*
+
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 
 ```yaml
