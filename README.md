@@ -316,6 +316,13 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 
+**Whitelists anti-faux-positifs** (`init/01-crowdsec.yaml`, parsers `s02-enrich`) : certaines applications génèrent un fort volume de requêtes légitimes qui ressemblent à du crawl/probing. Des whitelists ciblées évitent les bans intempestifs **sans désactiver la détection brute-force** (les réponses `401`/`403` restent analysées) :
+
+| Whitelist | Trafic couvert |
+|-----------|----------------|
+| `my/matrix-whitelist` | Fédération/clients Matrix (`/_matrix/`, `/_synapse/`, well-known) |
+| `my/office-whitelist` | Sync OxiCloud compatible Nextcloud/ownCloud (`/remote.php/`, `/ocs/`, `/status.php`) + assets/API du document server Euro-Office (`/web-apps/`, `/coauthoring/`, `/hosting/`…) |
+
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 
 ```yaml

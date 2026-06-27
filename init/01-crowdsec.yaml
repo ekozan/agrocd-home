@@ -32,6 +32,19 @@ spec:
                     - "evt.Meta.http_path startsWith '/_matrix/'"
                     - "evt.Meta.http_path startsWith '/_synapse/'"
                     - "evt.Meta.http_path startsWith '/.well-known/matrix/'"
+              office-whitelist.yaml: |
+                name: my/office-whitelist
+                description: "Évite les faux positifs (crawl/probing) sur le trafic légitime OxiCloud (sync Nextcloud/ownCloud) et Euro-Office (éditeur collaboratif)"
+                filter: "evt.Meta.service == 'http' && evt.Meta.log_type == 'http_access-log'"
+                whitelist:
+                  reason: "OxiCloud sync + Euro-Office document server (trafic applicatif légitime à fort volume)"
+                  # Les 401/403 NE sont PAS whitelistés → la détection brute-force
+                  # (custom/http-401-bf) et les bans AppSec restent actifs sur l'auth.
+                  expression:
+                    # OxiCloud — protocole de synchro compatible Nextcloud/ownCloud
+                    - "(evt.Meta.http_path startsWith '/remote.php/' || evt.Meta.http_path startsWith '/ocs/' || evt.Meta.http_path == '/status.php') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
+                    # Euro-Office — assets et API du document server (fork OnlyOffice)
+                    - "(evt.Meta.http_path startsWith '/web-apps/' || evt.Meta.http_path startsWith '/sdkjs/' || evt.Meta.http_path startsWith '/fonts/' || evt.Meta.http_path startsWith '/coauthoring/' || evt.Meta.http_path startsWith '/hosting/' || evt.Meta.http_path startsWith '/cache/' || evt.Meta.http_path == '/healthcheck') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
           appsec_configs:
             full-appsec.yaml: |
               name: custom/full-appsec
