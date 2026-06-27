@@ -59,6 +59,11 @@ spec:
         login: true
         passwordSecret:
           name: litellm-db
+      - name: oxicloud
+        ensure: present
+        login: true
+        passwordSecret:
+          name: oxicloud-db
 
   resources:
     requests:

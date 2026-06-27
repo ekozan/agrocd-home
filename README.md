@@ -14,7 +14,8 @@ Kubernetes Cluster
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
-└── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
 ```
 
 ### Domaines exposés
@@ -29,6 +30,8 @@ Kubernetes Cluster
 | CrowdSec (UI web) | `https://crowdsec.ffd.link` (LAN uniquement) |
 | MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média via LoadBalancer MetalLB : UDP `7882` / TCP `7881`) |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
+| OxiCloud (stockage) | `https://cloud.ffd.link` |
+| Euro-Office (édition docs) | `https://office.ffd.link` |
 
 ---
 
@@ -83,6 +86,10 @@ kubectl apply -f dev.yaml
 
 # 4. Chat (Matrix + Element Web)
 kubectl apply -f chat.yaml
+
+# 5. Bureautique (OxiCloud + Euro-Office)
+#    Pré-requis : secrets OpenBao + app OIDC Zitadel (voir office/README.md)
+kubectl apply -f office.yaml
 ```
 
 ArgoCD prend ensuite le relais et synchronise automatiquement chaque ressource.
@@ -116,6 +123,8 @@ agrocd-home/
 ├── init.yaml                  # ArgoCD App → ./init
 ├── infra.yaml                 # ArgoCD App → ./infra
 ├── dev.yaml                   # ArgoCD App → ./dev
+├── chat.yaml                  # ArgoCD App → ./chat
+├── office.yaml                # ArgoCD App → ./office
 │
 ├── init/
 │   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
@@ -161,9 +170,14 @@ agrocd-home/
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
 │
-└── chat/
-    ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
-    └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
+├── chat/
+│   ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
+│   └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
+│
+└── office/                     # OxiCloud + Euro-Office (voir office/README.md)
+    ├── 00-namespaces.yaml         # NS oxicloud + euro-office
+    ├── 01-oxicloud.yaml           # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress)
+    └── 02-euro-office.yaml        # Euro-Office (ExternalSecret JWT, PVC, Deployment, Service, Ingress)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -196,6 +210,8 @@ agrocd-home/
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
+| OxiCloud | `diocrafts/oxicloud` | latest | oxicloud |
+| Euro-Office | `ghcr.io/euro-office/documentserver` | latest | euro-office |
 
 ---
 
@@ -212,7 +228,8 @@ namespace database    → Cluster pg-main
                         ├── base zitadel  (rôle zitadel)
                         ├── base coder    (rôle coder)
                         ├── base gitea    (rôle gitea)
-                        └── base litellm  (rôle litellm)
+                        ├── base litellm  (rôle litellm)
+                        └── base oxicloud (rôle oxicloud)
 ```
 
 - **Identifiants** : un Secret `basic-auth` par rôle, à mot de passe aléatoire.
@@ -294,6 +311,8 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `matrix.ffd.link` (Tuwunel) | `chat/tuwunel.yaml` |
 | `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
+| `cloud.ffd.link` (OxiCloud) | `office/01-oxicloud.yaml` |
+| `office.ffd.link` (Euro-Office) | `office/02-euro-office.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 

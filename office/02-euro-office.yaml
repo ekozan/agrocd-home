@@ -1,0 +1,154 @@
+---
+# ExternalSecret — JWT_SECRET du serveur de documents Euro-Office.
+# MÊME valeur que OxiCloud OXICLOUD_WOPI_SECRET (OpenBao kv/kubernetes/office/jwt)
+# afin que les jetons signés par OxiCloud soient acceptés par Euro-Office.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: euro-office-jwt
+  namespace: euro-office
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: euro-office-jwt
+    creationPolicy: Owner
+  data:
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: kubernetes/office/jwt
+        property: secret
+---
+# PersistentVolumeClaim — données du serveur de documents (Longhorn).
+# Les documents eux-mêmes vivent dans OxiCloud ; ce volume ne porte que le
+# cache / les fichiers temporaires du document server.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: euro-office-data
+  namespace: euro-office
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 8Gi
+---
+# Deployment — Euro-Office Document Server (fork OnlyOffice).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: euro-office
+  namespace: euro-office
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # PVC RWO + services internes → pas de rollout //
+  selector:
+    matchLabels:
+      app: euro-office
+  template:
+    metadata:
+      labels:
+        app: euro-office
+    spec:
+      containers:
+        - name: documentserver
+          image: ghcr.io/euro-office/documentserver:latest
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            # Protection JWT des requêtes vers/depuis le document server.
+            - name: JWT_ENABLED
+              value: "true"
+            - name: JWT_HEADER
+              value: "Authorization"
+            - name: JWT_IN_BODY
+              value: "true"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: euro-office-jwt
+                  key: JWT_SECRET
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/onlyoffice
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 80
+            initialDelaySeconds: 90
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: euro-office-data
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: euro-office
+  namespace: euro-office
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: euro-office
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# Ingress — office.ffd.link (protégé CrowdSec)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: euro-office
+  namespace: euro-office
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: office.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: euro-office
+                port:
+                  number: 80
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - office.ffd.link

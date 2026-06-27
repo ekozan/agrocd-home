@@ -1,0 +1,18 @@
+# Base PostgreSQL pour OxiCloud.
+# Le rôle propriétaire `oxicloud` est déclaré dans 01-cluster.yaml
+# (spec.managed.roles). Le Secret `oxicloud-db` (mot de passe aléatoire) est
+# généré par le hook pg-secret-init puis répliqué vers le namespace `oxicloud`.
+# Voir infra/postgres/README.md
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: oxicloud
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: oxicloud
+  owner: oxicloud
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain
