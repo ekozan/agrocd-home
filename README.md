@@ -87,8 +87,11 @@ kubectl apply -f dev.yaml
 # 4. Chat (Matrix + Element Web)
 kubectl apply -f chat.yaml
 
-# 5. Bureautique (OxiCloud + Euro-Office)
+# 5. Bureautique
 #    Pré-requis : secrets OpenBao + app OIDC Zitadel (voir office/README.md)
+#    - OxiCloud (cloud.ffd.link) est déployé par la couche infra
+#      (infra/10-oxicloud.yaml), déjà appliquée à l'étape 2.
+#    - Euro-Office (office.ffd.link) :
 kubectl apply -f office.yaml
 ```
 
@@ -111,8 +114,11 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `5` | Zitadel (IdP) |
 | `6` | Gitea |
 | `7` | Gitea Act Runner |
+| `8` | Network Policies |
+| `9` | CrowdSec UI |
+| `10` | OxiCloud (`cloud.ffd.link`) |
 
-Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
+Les services dev (Coder, LiteLLM), chat (Matrix) et Euro-Office sont gérés indépendamment via `dev.yaml`, `chat.yaml` et `office.yaml`.
 
 ---
 
@@ -162,7 +168,9 @@ agrocd-home/
 │   ├── 06-gitea.yaml
 │   ├── 07-gitea-act-runner.yaml
 │   ├── 08-network-policies.yaml
-│   └── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
+│   ├── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
+│   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
+│   └── oxicloud/             # OxiCloud (NS, ExternalSecrets, PVC NFS, Deployment, Service, Ingress)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -174,10 +182,9 @@ agrocd-home/
 │   ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
 │   └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
 │
-└── office/                     # OxiCloud + Euro-Office (voir office/README.md)
-    ├── 00-namespaces.yaml         # NS oxicloud + euro-office
-    ├── 01-oxicloud.yaml           # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress)
-    └── 02-euro-office.yaml        # Euro-Office (ExternalSecret JWT, PVC, Deployment, Service, Ingress)
+└── office/                     # Euro-Office (voir office/README.md ; OxiCloud → infra/oxicloud)
+    ├── 00-namespaces.yaml         # NS euro-office
+    └── 02-euro-office.yaml        # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -312,7 +319,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `matrix.ffd.link` (Tuwunel) | `chat/tuwunel.yaml` |
 | `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
-| `cloud.ffd.link` (OxiCloud) | `office/01-oxicloud.yaml` |
+| `cloud.ffd.link` (OxiCloud) | `infra/oxicloud/oxicloud.yaml` |
 | `office.ffd.link` (Euro-Office) | `office/02-euro-office.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.

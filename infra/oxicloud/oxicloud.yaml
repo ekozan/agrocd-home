@@ -1,4 +1,19 @@
 ---
+# Namespace OxiCloud — stockage de fichiers (alternative Nextcloud, Rust).
+# Le Secret `oxicloud-db` (CNPG) est répliqué ici par kubernetes-replicator,
+# et le ConfigMap `pg-main-ca` y est diffusé par trust-manager.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oxicloud
+  labels:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
+    # Passer en enforce: restricted une fois OxiCloud durci et validé.
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
 # ExternalSecret — credentials du client OIDC Zitadel (confidentiel).
 # Pré-requis OpenBao : kv/kubernetes/oxicloud/zitadel { client_id, client_secret }
 # Application OIDC à créer dans Zitadel (code flow + secret), redirect :

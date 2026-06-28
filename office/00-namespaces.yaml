@@ -1,23 +1,9 @@
 ---
-# Namespace OxiCloud — stockage de fichiers (alternative Nextcloud, Rust).
-# Le Secret `oxicloud-db` (CNPG) est répliqué ici par kubernetes-replicator,
-# et le ConfigMap `pg-main-ca` y est diffusé par trust-manager.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: oxicloud
-  labels:
-    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
-    # Passer en enforce: restricted une fois OxiCloud durci et validé.
-    pod-security.kubernetes.io/warn: restricted
-    pod-security.kubernetes.io/audit: restricted
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
----
 # Namespace Euro-Office — serveur de documents (fork OnlyOffice).
-# L'image embarque plusieurs services (postgres/rabbitmq/redis/nginx) lancés
-# par supervisord → PSA restricted non applicable : on reste en warn/audit
+# L'image embarque plusieurs services (rabbitmq/redis/nginx) lancés par
+# supervisord → PSA restricted non applicable : on reste en warn/audit
 # baseline pour ne pas bloquer le pod.
+# (OxiCloud est désormais géré par la couche infra : infra/10-oxicloud.yaml.)
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -10,7 +10,7 @@ pour l'édition en ligne via le protocole **WOPI**.
 | Euro-Office | `https://office.ffd.link` | `ghcr.io/euro-office/documentserver:v9.3.2` |
 
 > Images **figées** sur une version précise (GitOps reproductible). Pour mettre
-> à jour : bumper le tag dans `01-oxicloud.yaml` / `02-euro-office.yaml`.
+> à jour : bumper le tag dans `infra/oxicloud/oxicloud.yaml` / `office/02-euro-office.yaml`.
 >
 > **OxiCloud — mainteneur** : le projet est désormais porté par **AtalayaLabs**
 > (ex-DioCrafts) — repo `github.com/AtalayaLabs/OxiCloud`. En revanche l'image
@@ -19,7 +19,14 @@ pour l'édition en ligne via le protocole **WOPI**.
 > n'existe pas sur Docker Hub). On garde donc `diocrafts/oxicloud` tant qu'aucune
 > image n'est republiée sous `atalayalabs`.
 
-Déployé par l'Application ArgoCD `office.yaml` (path `office/`).
+Déploiement (les deux apps sont couplées par WOPI mais gérées par deux apps ArgoCD) :
+
+- **OxiCloud** → couche **infra** : `infra/10-oxicloud.yaml` (App ArgoCD, sync-wave 10,
+  après `pg-main`) + manifests dans `infra/oxicloud/`.
+- **Euro-Office** → app `office.yaml` (path `office/`).
+
+> Ce document reste la référence unique de la stack bureautique (prérequis,
+> couplage WOPI, OIDC) même si les manifests OxiCloud vivent sous `infra/`.
 
 ## Architecture
 
@@ -48,9 +55,9 @@ OxiCloud ──OIDC──> Zitadel (idp.ffd.link)
 
 | Fichier | Rôle |
 |---------|------|
-| `00-namespaces.yaml` | Namespaces `oxicloud` (PSA restricted-warn) et `euro-office` (PSA baseline-warn) |
-| `01-oxicloud.yaml` | ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
-| `02-euro-office.yaml` | ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
+| `infra/10-oxicloud.yaml` + `infra/oxicloud/` | **OxiCloud** : NS `oxicloud` (PSA restricted-warn), ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
+| `office/00-namespaces.yaml` | NS `euro-office` (PSA baseline-warn) |
+| `office/02-euro-office.yaml` | **Euro-Office** : ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
 
 Ressources hors de ce dossier :
 
