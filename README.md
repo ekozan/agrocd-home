@@ -324,14 +324,30 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `my/office-whitelist` | Sync OxiCloud compatible Nextcloud/ownCloud (`/remote.php/`, `/ocs/`, `/status.php`) + assets/API du document server Euro-Office (`/web-apps/`, `/coauthoring/`, `/hosting/`…) |
 
 > Ces whitelists agissent au niveau du **bouncer/LAPI** (sur les logs Traefik).
-> Le **WAF AppSec** (inspection inline) est traité à part : les règles
-> `base-config`/`generic-*` (type CRS) bloqueraient les verbes WebDAV
-> (`PROPFIND`, `MKCOL`, `MOVE`, `REPORT`, `LOCK`…) et pourraient matcher à tort
-> le corps binaire d'un upload. La config AppSec active (`custom/full-appsec`)
-> contient donc un hook `on_match` qui passe la remédiation à `allow` sur la
-> surface de synchro OxiCloud (`/remote.php/`, `/ocs/`, `/status.php`) — la
-> détection out-of-band reste loggée, seul le blocage est levé. *(Euro-Office
-> n'utilise que des verbes HTTP standards → pas d'exclusion AppSec nécessaire.)*
+> Le **WAF AppSec** (inspection inline) est géré séparément (voir ci-dessous).
+
+### WAF AppSec — règles WebDAV
+
+La config AppSec active est `custom/full-appsec` (`appsec.configs`), chargée par
+le composant AppSec via l'acquisition. Elle combine les règles du hub
+(`base-config`, `vpatch-*`, `generic-*`) et des **règles WebDAV custom**
+(`appsec.rules`) protégeant la surface de synchro d'OxiCloud :
+
+| Règle custom | Protection |
+|--------------|-----------|
+| `custom/webdav-xxe` | Bloque les entités externes XML (XXE : `<!DOCTYPE`/`<!ENTITY`) dans les corps WebDAV (PROPFIND/PROPPATCH) |
+| `custom/webdav-destination-traversal` | Bloque le path traversal (`../`) dans l'en-tête `Destination` des MOVE/COPY |
+| `custom/http-bad-method` | Bloque les méthodes dangereuses (TRACE/TRACK/CONNECT/DEBUG) |
+
+> **Notes** :
+> - `base-config` ne fait que configurer les *body processors* (par Content-Type) ;
+>   il n'impose **pas** d'allowlist de méthodes → les verbes WebDAV passent.
+> - Les faux positifs de type *crawl/probing* (synchro à fort volume) sont gérés
+>   en amont par le whitelist bouncer `my/office-whitelist` ci-dessus.
+> - **Emplacement** : les configs/règles AppSec doivent être sous `appsec.configs`
+>   / `appsec.rules` (chart crowdsec) — **pas** sous `config.*`, sinon elles ne
+>   sont pas montées dans le composant AppSec.
+> - Euro-Office n'utilise que des verbes HTTP standards → pas de règle dédiée.
 
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 
