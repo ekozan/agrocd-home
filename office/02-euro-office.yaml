@@ -80,6 +80,27 @@ spec:
                 secretKeyRef:
                   name: euro-office-jwt
                   key: JWT_SECRET
+            # ── Base de données externe : pg-main (CNPG) ─────────────────────
+            # Renseigner DB_* désactive le PostgreSQL embarqué de l'image.
+            # RabbitMQ et Redis restent embarqués (non déportés).
+            # Connexion SANS TLS : le support SSL d'OnlyOffice vers une PG
+            # externe est non fiable ; pg-main accepte le non-SSL (règle `host`
+            # du pg_hba CNPG). Trafic intra-cluster + NetworkPolicy.
+            - name: DB_TYPE
+              value: "postgres"
+            - name: DB_HOST
+              value: "pg-main-rw.database.svc.cluster.local"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "euro-office"
+            - name: DB_USER
+              value: "euro-office"
+            - name: DB_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: euro-office-db
+                  key: password
           volumeMounts:
             - name: data
               mountPath: /var/lib/onlyoffice

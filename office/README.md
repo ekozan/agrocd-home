@@ -30,9 +30,19 @@ Navigateur ──https──> Traefik (CrowdSec) ──> cloud.ffd.link  (OxiClo
 OxiCloud ──WOPI discovery / éditeur──> Euro-Office (svc interne :80)
 Euro-Office ──rappels WOPI (Get/PutFile)──> OxiCloud (svc interne :8086)
 
-OxiCloud ──TLS verify-full──> pg-main-rw.database.svc:5432  (base `oxicloud`)
+OxiCloud    ──TLS verify-full──> pg-main-rw.database.svc:5432  (base `oxicloud`)
+Euro-Office ──sans TLS──────────> pg-main-rw.database.svc:5432  (base `euro-office`)
 OxiCloud ──OIDC──> Zitadel (idp.ffd.link)
 ```
+
+> **Euro-Office & PostgreSQL** : la **base** utilise `pg-main` (CNPG, base/rôle
+> `euro-office`) via `DB_*` — ce qui désactive le PostgreSQL embarqué de l'image.
+> En revanche **RabbitMQ et Redis restent embarqués** (non déportés). La connexion
+> se fait **sans TLS** : le support SSL d'OnlyOffice vers une PG externe est non
+> fiable (issues amont non résolues). C'est acceptable ici (trafic intra-cluster,
+> NetworkPolicy, auth mot de passe) ; `pg-main` accepte le non-SSL via la règle
+> `host` par défaut du `pg_hba` CNPG. Le secret `euro-office-db` est généré par
+> `pg-secret-init` et répliqué vers le namespace `euro-office`.
 
 ## Composants
 
@@ -40,13 +50,14 @@ OxiCloud ──OIDC──> Zitadel (idp.ffd.link)
 |---------|------|
 | `00-namespaces.yaml` | Namespaces `oxicloud` (PSA restricted-warn) et `euro-office` (PSA baseline-warn) |
 | `01-oxicloud.yaml` | ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
-| `02-euro-office.yaml` | ExternalSecret (JWT), PVC (Longhorn), Deployment, Service, Ingress |
+| `02-euro-office.yaml` | ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
 
 Ressources hors de ce dossier :
 
-- **Base de données** : `infra/postgres/01-cluster.yaml` (rôle `oxicloud`) +
-  `infra/postgres/02-db-oxicloud.yaml` (base `oxicloud`). Le secret `oxicloud-db`
-  est généré par le hook `pg-secret-init` et répliqué vers le namespace `oxicloud`.
+- **Bases de données** (cluster CNPG `pg-main`) : rôles `oxicloud` et `euro-office`
+  dans `infra/postgres/01-cluster.yaml` ; bases dans `02-db-oxicloud.yaml` et
+  `02-db-eurooffice.yaml`. Les secrets `oxicloud-db` / `euro-office-db` sont
+  générés par le hook `pg-secret-init` et répliqués vers les namespaces homonymes.
 - **NetworkPolicies** : `infra/network-policies/oxicloud.yaml` et
   `euro-office.yaml` (default-deny + allow Traefik + allow WOPI croisé).
 

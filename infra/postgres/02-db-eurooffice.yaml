@@ -1,0 +1,21 @@
+# Base PostgreSQL pour Euro-Office (document server, fork OnlyOffice).
+# Le rôle propriétaire `euro-office` est déclaré dans 01-cluster.yaml
+# (spec.managed.roles). Le Secret `euro-office-db` (mot de passe aléatoire) est
+# généré par le hook pg-secret-init puis répliqué vers le namespace `euro-office`.
+# Euro-Office ne gère QUE sa base ici ; RabbitMQ et Redis restent embarqués dans
+# l'image. La connexion se fait SANS TLS (le support SSL d'OnlyOffice vers une PG
+# externe est non fiable) — acceptable car intra-cluster + NetworkPolicy.
+# Voir infra/postgres/README.md
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: euro-office
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  name: euro-office
+  owner: euro-office
+  cluster:
+    name: pg-main
+  databaseReclaimPolicy: retain

@@ -229,7 +229,8 @@ namespace database    → Cluster pg-main
                         ├── base coder    (rôle coder)
                         ├── base gitea    (rôle gitea)
                         ├── base litellm  (rôle litellm)
-                        └── base oxicloud (rôle oxicloud)
+                        ├── base oxicloud (rôle oxicloud)
+                        └── base euro-office (rôle euro-office, sans TLS)
 ```
 
 - **Identifiants** : un Secret `basic-auth` par rôle, à mot de passe aléatoire.
