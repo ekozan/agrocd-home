@@ -326,28 +326,35 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 > Ces whitelists agissent au niveau du **bouncer/LAPI** (sur les logs Traefik).
 > Le **WAF AppSec** (inspection inline) est géré séparément (voir ci-dessous).
 
-### WAF AppSec — règles WebDAV
+### WAF AppSec — packs du hub (OWASP CRS + virtual patching)
 
-La config AppSec active est `custom/full-appsec` (`appsec.configs`), chargée par
-le composant AppSec via l'acquisition. Elle combine les règles du hub
-(`base-config`, `vpatch-*`, `generic-*`) et des **règles WebDAV custom**
-(`appsec.rules`) protégeant la surface de synchro d'OxiCloud :
+La config AppSec active est `custom/full-appsec` (`appsec.configs`). Plutôt que
+des règles maison, elle s'appuie sur les **packs WAF prêts à l'emploi** du hub
+CrowdSec, installés via `COLLECTIONS` / `APPSEC_RULES` du composant AppSec :
 
-| Règle custom | Protection |
-|--------------|-----------|
-| `custom/webdav-xxe` | Bloque les entités externes XML (XXE : `<!DOCTYPE`/`<!ENTITY`) dans les corps WebDAV (PROPFIND/PROPPATCH) |
-| `custom/webdav-destination-traversal` | Bloque le path traversal (`../`) dans l'en-tête `Destination` des MOVE/COPY |
-| `custom/http-bad-method` | Bloque les méthodes dangereuses (TRACE/TRACK/CONNECT/DEBUG) |
+| Pack (hub) | Mode | Rôle |
+|------------|------|------|
+| `crowdsecurity/appsec-virtual-patching` (`vpatch-*`) | **inband** (bloque) | Virtual patching CVE — quasi zéro faux positif |
+| `crowdsecurity/appsec-generic-rules` (`generic-*`, `base-config`) | **inband** (bloque) | Patterns d'attaque génériques + body processors |
+| `crowdsecurity/appsec-crs` (`crowdsecurity/crs`) | **out-of-band** (alerte) | OWASP Core Rule Set complet (XXE, traversal, RCE, method enforcement…) |
+| `crowdsecurity/crs-exclusion-plugin-nextcloud` | datafiles | Exclusions CRS officielles Nextcloud/WebDAV (anti-FP synchro) |
+
+**Fonctionnement** : les règles *inband* (vpatch/generic) bloquent immédiatement.
+Le CRS tourne en *out-of-band* (n'interrompt pas la requête mais émet une alerte
+via le hook `on_match`/`SendAlert`) ; le scénario `crowdsecurity/crowdsec-appsec-outofband`
+(fourni par `appsec-crs`) corrèle ces alertes et bannit l'IP au-delà d'un seuil
+— c'est le compromis couverture/faux-positifs recommandé par CrowdSec.
 
 > **Notes** :
+> - Les exclusions Nextcloud du plugin CRS sont **incluses automatiquement** par
+>   le CRS dès que ses datafiles sont présents → pas de FP sur `/remote.php/`,
+>   `/ocs/`, etc. (en plus du whitelist bouncer `my/office-whitelist` ci-dessus).
+> - **Emplacement** : configs/règles AppSec sous `appsec.configs` / `appsec.rules`
+>   (chart crowdsec) — **pas** sous `config.*`, sinon non montées dans le
+>   composant AppSec. Les règles du hub s'installent via `COLLECTIONS` (collections)
+>   et `APPSEC_RULES` (appsec-rules individuelles), pas par fichier inline.
 > - `base-config` ne fait que configurer les *body processors* (par Content-Type) ;
->   il n'impose **pas** d'allowlist de méthodes → les verbes WebDAV passent.
-> - Les faux positifs de type *crawl/probing* (synchro à fort volume) sont gérés
->   en amont par le whitelist bouncer `my/office-whitelist` ci-dessus.
-> - **Emplacement** : les configs/règles AppSec doivent être sous `appsec.configs`
->   / `appsec.rules` (chart crowdsec) — **pas** sous `config.*`, sinon elles ne
->   sont pas montées dans le composant AppSec.
-> - Euro-Office n'utilise que des verbes HTTP standards → pas de règle dédiée.
+>   il n'impose pas d'allowlist de méthodes → les verbes WebDAV passent nativement.
 
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 

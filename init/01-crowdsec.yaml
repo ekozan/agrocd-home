@@ -75,76 +75,32 @@ spec:
           enabled: true
           # ⚠️ Les configs/règles AppSec vont sous `appsec.configs` / `appsec.rules`
           # (PAS sous `config.*`, qui ne les monte pas dans le composant AppSec).
+          # On s'appuie sur les packs WAF TOUT-FAITS du hub CrowdSec (installés
+          # via COLLECTIONS / APPSEC_RULES ci-dessous) plutôt que des règles maison.
           configs:
             full-appsec.yaml: |
               name: custom/full-appsec
               default_remediation: ban
+              # Inband (BLOQUE immédiatement) : virtual patching CVE + génériques.
+              # Très faible taux de faux positifs → on peut bloquer directement.
               inband_rules:
                 - crowdsecurity/base-config
                 - crowdsecurity/vpatch-*
                 - crowdsecurity/generic-*
-                # Règles WebDAV custom (définies dans appsec.rules ci-dessous)
-                - custom/webdav-xxe
-                - custom/webdav-destination-traversal
-                - custom/http-bad-method
+              # Out-of-band (ALERTE, ne bloque pas) : OWASP Core Rule Set complet
+              # (XXE, traversal, RCE, protocol/method enforcement, etc.). Le
+              # scénario crowdsecurity/crowdsec-appsec-outofband (fourni par la
+              # collection appsec-crs) corrèle ces alertes et bannit l'IP au-delà
+              # d'un seuil → équilibre couverture / faux positifs. Les exclusions
+              # Nextcloud/WebDAV (plugin crs-exclusion-plugin-nextcloud) sont
+              # incluses automatiquement par le CRS → pas de FP sur /remote.php/.
               outofband_rules:
+                - crowdsecurity/crs
                 - crowdsecurity/experimental-*
-          # Règles AppSec custom protégeant la surface WebDAV d'OxiCloud.
-          rules:
-            webdav-xxe.yaml: |
-              name: custom/webdav-xxe
-              description: "Bloque les charges XXE (DOCTYPE/ENTITY externes) dans les corps XML WebDAV (PROPFIND/PROPPATCH). Un PROPFIND légitime ne contient jamais de DOCTYPE/ENTITY → pas de faux positif."
-              rules:
-                - zones:
-                    - RAW_BODY
-                  transform:
-                    - lowercase
-                  match:
-                    type: regex
-                    value: "<!(doctype|entity)"
-              labels:
-                type: exploit
-                service: http
-                behavior: "http:exploit"
-                label: "WebDAV XXE attempt"
-                confidence: 3
-            webdav-destination-traversal.yaml: |
-              name: custom/webdav-destination-traversal
-              description: "Bloque le path traversal dans l'en-tête Destination des requêtes WebDAV MOVE/COPY"
-              rules:
-                - zones:
-                    - HEADERS
-                  variables:
-                    - Destination
-                  transform:
-                    - urldecode
-                    - lowercase
-                  match:
-                    type: regex
-                    value: "\\.\\.(/|\\\\)"
-              labels:
-                type: exploit
-                service: http
-                behavior: "http:exploit"
-                label: "WebDAV Destination traversal"
-                confidence: 3
-            http-bad-method.yaml: |
-              name: custom/http-bad-method
-              description: "Bloque les méthodes HTTP dangereuses/inutiles (TRACE, TRACK, CONNECT, DEBUG) — durcissement général, complète la protection WebDAV"
-              rules:
-                - zones:
-                    - METHOD
-                  transform:
-                    - uppercase
-                  match:
-                    type: regex
-                    value: "^(TRACE|TRACK|CONNECT|DEBUG)$"
-              labels:
-                type: exploit
-                service: http
-                behavior: "http:exploit"
-                label: "Dangerous HTTP method"
-                confidence: 3
+              on_match:
+                - filter: "IsOutBand == true"
+                  apply:
+                    - SendAlert()
           acquisitions:
             - source: appsec
               listen_addr: "0.0.0.0:7422"
@@ -153,8 +109,16 @@ spec:
               labels:
                 type: appsec
           env:
+            # Collections WAF du hub : virtual patching + règles génériques +
+            # OWASP Core Rule Set (config crowdsecurity/crs + règle CRS + scénario
+            # de corrélation out-of-band).
             - name: COLLECTIONS
-              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
+              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/appsec-crs"
+            # Plugin d'exclusion CRS pour Nextcloud/WebDAV (c'est une appsec-rule,
+            # pas une collection) → installé via APPSEC_RULES ; ses datafiles sont
+            # inclus automatiquement par le CRS pour éviter les FP sur la synchro.
+            - name: APPSEC_RULES
+              value: "crowdsecurity/crs-exclusion-plugin-nextcloud"
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
           # Collections de parsers/scénarios installées au démarrage
