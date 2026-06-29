@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: euro-office
+  namespace: argocd
+  annotations:
+    # Après OxiCloud (wave 10) ; Euro-Office a besoin de la base `euro-office`
+    # sur pg-main et est couplé à OxiCloud par WOPI. La découverte WOPI étant
+    # paresseuse, l'ordre exact OxiCloud/Euro-Office n'est pas critique.
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: HEAD
+    path: ./infra/euro-office
+
+  destination:
+    server: https://kubernetes.default.svc
+    # Le namespace réel de chaque ressource est porté par le manifest
+    # (metadata.namespace = euro-office) ; cette valeur n'est qu'un défaut ArgoCD.
+    namespace: euro-office
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true

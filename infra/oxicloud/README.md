@@ -1,4 +1,4 @@
-# office — OxiCloud + Euro-Office
+# Bureautique — OxiCloud + Euro-Office
 
 Suite bureautique auto-hébergée : **OxiCloud** (stockage de fichiers, alternative
 Nextcloud en Rust) couplé à **Euro-Office** (serveur de documents, fork OnlyOffice)
@@ -10,7 +10,7 @@ pour l'édition en ligne via le protocole **WOPI**.
 | Euro-Office | `https://office.ffd.link` | `ghcr.io/euro-office/documentserver:v9.3.2` |
 
 > Images **figées** sur une version précise (GitOps reproductible). Pour mettre
-> à jour : bumper le tag dans `infra/oxicloud/oxicloud.yaml` / `office/02-euro-office.yaml`.
+> à jour : bumper le tag dans `infra/oxicloud/oxicloud.yaml` / `infra/euro-office/euro-office.yaml`.
 >
 > **OxiCloud — mainteneur** : le projet est désormais porté par **AtalayaLabs**
 > (ex-DioCrafts) — repo `github.com/AtalayaLabs/OxiCloud`. En revanche l'image
@@ -19,14 +19,11 @@ pour l'édition en ligne via le protocole **WOPI**.
 > n'existe pas sur Docker Hub). On garde donc `diocrafts/oxicloud` tant qu'aucune
 > image n'est republiée sous `atalayalabs`.
 
-Déploiement (les deux apps sont couplées par WOPI mais gérées par deux apps ArgoCD) :
+Déploiement — les deux apps (couplées par WOPI) sont gérées par la couche **infra**,
+chacune par une Application ArgoCD imbriquée :
 
-- **OxiCloud** → couche **infra** : `infra/10-oxicloud.yaml` (App ArgoCD, sync-wave 10,
-  après `pg-main`) + manifests dans `infra/oxicloud/`.
-- **Euro-Office** → app `office.yaml` (path `office/`).
-
-> Ce document reste la référence unique de la stack bureautique (prérequis,
-> couplage WOPI, OIDC) même si les manifests OxiCloud vivent sous `infra/`.
+- **OxiCloud** → `infra/10-oxicloud.yaml` (sync-wave 10) + manifests `infra/oxicloud/`.
+- **Euro-Office** → `infra/11-euro-office.yaml` (sync-wave 11) + manifests `infra/euro-office/`.
 
 ## Architecture
 
@@ -55,11 +52,10 @@ OxiCloud ──OIDC──> Zitadel (idp.ffd.link)
 
 | Fichier | Rôle |
 |---------|------|
-| `infra/10-oxicloud.yaml` + `infra/oxicloud/` | **OxiCloud** : NS `oxicloud` (PSA restricted-warn), ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
-| `office/00-namespaces.yaml` | NS `euro-office` (PSA baseline-warn) |
-| `office/02-euro-office.yaml` | **Euro-Office** : ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
+| `infra/10-oxicloud.yaml` + `infra/oxicloud/oxicloud.yaml` | **OxiCloud** : NS `oxicloud` (PSA restricted-warn), ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
+| `infra/11-euro-office.yaml` + `infra/euro-office/euro-office.yaml` | **Euro-Office** : NS `euro-office` (PSA baseline-warn), ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
 
-Ressources hors de ce dossier :
+Ressources liées :
 
 - **Bases de données** (cluster CNPG `pg-main`) : rôles `oxicloud` et `euro-office`
   dans `infra/postgres/01-cluster.yaml` ; bases dans `02-db-oxicloud.yaml` et
@@ -92,7 +88,7 @@ OxiCloud utilise le **code flow confidentiel** (avec `client_secret`).
 
 ## Notes d'exploitation
 
-- **DB / TLS** : la connection string est assemblée dans le pod
+- **DB / TLS** : la connection string OxiCloud est assemblée dans le pod
   (`PGPASSWORD` injecté depuis le secret `oxicloud-db`, interpolé via l'expansion
   `$(VAR)` Kubernetes). Le CA interne (`pg-main-ca`, monté en `/etc/pg-ca/ca.crt`)
   permet `sslmode=verify-full`.
@@ -104,8 +100,8 @@ OxiCloud utilise le **code flow confidentiel** (avec `client_secret`).
 - **JWT WOPI** : OxiCloud (`OXICLOUD_WOPI_SECRET`) et Euro-Office (`JWT_SECRET`)
   lisent la même clé OpenBao. Si l'éditeur renvoie une erreur de jeton, vérifier
   que cette clé est bien identique des deux côtés.
-- **Euro-Office** embarque postgres/rabbitmq/redis (supervisord) → premier
-  démarrage lent (~1-2 min) ; les probes `/healthcheck` tolèrent ce délai.
+- **Euro-Office** embarque rabbitmq/redis (supervisord) → premier démarrage lent
+  (~1-2 min) ; les probes `/healthcheck` tolèrent ce délai.
 
 ## Compatibilité Nextcloud / ownCloud
 
@@ -120,4 +116,3 @@ iOS — même lignée de protocole) peuvent donc s'y connecter :
   des clients — **ne pas le changer** après les premières synchros (sinon resync
   complète). `OXICLOUD_NEXTCLOUD_VERSION` est la version Nextcloud annoncée pour
   la négociation de compatibilité client.
-

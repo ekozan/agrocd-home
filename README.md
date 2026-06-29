@@ -86,14 +86,12 @@ kubectl apply -f dev.yaml
 
 # 4. Chat (Matrix + Element Web)
 kubectl apply -f chat.yaml
-
-# 5. Bureautique
-#    Pré-requis : secrets OpenBao + app OIDC Zitadel (voir office/README.md)
-#    - OxiCloud (cloud.ffd.link) est déployé par la couche infra
-#      (infra/10-oxicloud.yaml), déjà appliquée à l'étape 2.
-#    - Euro-Office (office.ffd.link) :
-kubectl apply -f office.yaml
 ```
+
+> **Bureautique (OxiCloud + Euro-Office)** : déployée par la couche **infra**
+> (`infra/10-oxicloud.yaml`, `infra/11-euro-office.yaml`), donc déjà couverte par
+> l'étape 2. Prérequis manuels (secrets OpenBao + app OIDC Zitadel) :
+> voir `infra/oxicloud/README.md`.
 
 ArgoCD prend ensuite le relais et synchronise automatiquement chaque ressource.
 
@@ -117,8 +115,9 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `8` | Network Policies |
 | `9` | CrowdSec UI |
 | `10` | OxiCloud (`cloud.ffd.link`) |
+| `11` | Euro-Office (`office.ffd.link`) |
 
-Les services dev (Coder, LiteLLM), chat (Matrix) et Euro-Office sont gérés indépendamment via `dev.yaml`, `chat.yaml` et `office.yaml`.
+Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
 ---
 
@@ -130,7 +129,6 @@ agrocd-home/
 ├── infra.yaml                 # ArgoCD App → ./infra
 ├── dev.yaml                   # ArgoCD App → ./dev
 ├── chat.yaml                  # ArgoCD App → ./chat
-├── office.yaml                # ArgoCD App → ./office
 │
 ├── init/
 │   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
@@ -170,7 +168,9 @@ agrocd-home/
 │   ├── 08-network-policies.yaml
 │   ├── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
-│   └── oxicloud/             # OxiCloud (NS, ExternalSecrets, PVC NFS, Deployment, Service, Ingress)
+│   ├── oxicloud/             # OxiCloud (NS, ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
+│   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
+│   └── euro-office/          # Euro-Office (NS, ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -178,13 +178,9 @@ agrocd-home/
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
 │
-├── chat/
-│   ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
-│   └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
-│
-└── office/                     # Euro-Office (voir office/README.md ; OxiCloud → infra/oxicloud)
-    ├── 00-namespaces.yaml         # NS euro-office
-    └── 02-euro-office.yaml        # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+└── chat/
+    ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
+    └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -320,7 +316,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
 | `cloud.ffd.link` (OxiCloud) | `infra/oxicloud/oxicloud.yaml` |
-| `office.ffd.link` (Euro-Office) | `office/02-euro-office.yaml` |
+| `office.ffd.link` (Euro-Office) | `infra/euro-office/euro-office.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 
