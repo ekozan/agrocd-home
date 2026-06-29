@@ -12,7 +12,7 @@ spec:
   source:
     chart: cert-manager-webhook-ovh
     repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
-    targetRevision: 0.*
+    targetRevision: 0.7.6
     helm:
       releaseName: cert-manager-webhook-ovh
       valuesObject:    
@@ -20,6 +20,27 @@ spec:
         groupName: acme.eko.ovh
         image:
           pullPolicy: IfNotPresent
+        # Conformité Pod Security Admission "restricted" du namespace cert-manager
+        # (cf. infra/01 certmanager.yaml : warn+audit=restricted). Rendu tel quel
+        # par le template (toYaml), guardé par securityContext.enabled.
+        securityContext:
+          enabled: true
+          pod:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          container:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
         issuers:
           - acmeServerUrl: https://acme-v02.api.letsencrypt.org/directory
             create: true
