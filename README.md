@@ -123,6 +123,7 @@ agrocd-home/
 │   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
 │   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
 │   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
+│   ├── 04-traefik-error-pages.yaml # Pages d'erreur (error-pages) + Middleware errors
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
@@ -371,6 +372,9 @@ Définis dans `init/03-traefik-middlewares.yaml` (namespace `traefik`, comme le 
 | `crowdsec` | Bouncer + AppSec WAF CrowdSec | `traefik-crowdsec@kubernetescrd` |
 | `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16` et `10.5.0.0/16` | `traefik-local-only@kubernetescrd` |
 | `oidc-auth` | Login OIDC via Zitadel (plugin `traefik-oidc-auth`) | `traefik-oidc-auth@kubernetescrd` |
+| `error-pages` | Pages d'erreur personnalisées pour 404 et 5xx (sert depuis le service `error-pages`, cf. `init/04-traefik-error-pages.yaml`) | `traefik-error-pages@kubernetescrd` |
+
+> Le middleware `error-pages` n'intercepte pas le 304 (Not Modified) — ce n'est pas une erreur mais une réponse de cache sans corps. Ajouter `"401"`/`"403"` à `spec.errors.status` si besoin.
 
 **Appliquer sur une route** (les middlewares se chaînent, séparés par des virgules) :
 

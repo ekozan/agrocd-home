@@ -1,0 +1,118 @@
+# Pages d'erreur personnalisées servies par Traefik via le middleware `errors`.
+#
+# Contrairement à la page de ban CrowdSec (simple fichier monté dans Traefik,
+# cf. 02-crowdsec-bouncer.yaml + banHTMLFilePath), le middleware `errors` ne lit
+# PAS un fichier local : il REDIRIGE vers un service HTTP qui rend la page. On
+# déploie donc un petit serveur dédié (tarampampam/error-pages) puis on branche
+# le middleware dessus.
+#
+# Le middleware est opt-in, comme `crowdsec` / `local-only` : il ne s'applique
+# qu'aux Ingress qui le référencent (allowCrossNamespace est activé dans
+# 00-traefik3.yaml) :
+#
+#   traefik.ingress.kubernetes.io/router.middlewares: traefik-error-pages@kubernetescrd
+#
+# Chaînable avec les autres middlewares, ex. :
+#   ...router.middlewares: traefik-crowdsec@kubernetescrd,traefik-error-pages@kubernetescrd
+#
+# NB : on n'intercepte PAS le 304 (Not Modified) — ce n'est pas une erreur mais
+# une réponse de cache conditionnel SANS corps ; servir une page la casserait.
+# On cible 404 et 5xx (codes serveur). Ajouter "401"/"403" à status si besoin,
+# en gardant à l'esprit que cela masque le challenge WWW-Authenticate éventuel.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: error-pages
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: error-pages
+  template:
+    metadata:
+      labels:
+        app: error-pages
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: error-pages
+          image: ghcr.io/tarampampam/error-pages:3.3.3
+          imagePullPolicy: IfNotPresent
+          env:
+            # Thème sombre, cohérent avec la page de ban CrowdSec
+            - name: TEMPLATE_NAME
+              value: l7-dark
+            # Pas d'exposition de détails techniques côté client
+            - name: SHOW_DETAILS
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: error-pages
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  selector:
+    app: error-pages
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Intercepte 404 et 5xx renvoyés par le backend et sert la page correspondante.
+# Traefik substitue {status} dans `query` → ex. requête interne /404.html, que
+# tarampampam/error-pages résout en page thématisée pour ce code.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: error-pages
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  errors:
+    status:
+      - "404"
+      - "500-599"
+    service:
+      name: error-pages
+      namespace: traefik
+      port: 80
+    query: "/{status}.html"
