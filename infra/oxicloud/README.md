@@ -61,8 +61,12 @@ Ressources liées :
   dans `infra/postgres/01-cluster.yaml` ; bases dans `02-db-oxicloud.yaml` et
   `02-db-eurooffice.yaml`. Les secrets `oxicloud-db` / `euro-office-db` sont
   générés par le hook `pg-secret-init` et répliqués vers les namespaces homonymes.
-- **NetworkPolicies** : `infra/network-policies/oxicloud.yaml` et
-  `euro-office.yaml` (default-deny + allow Traefik + allow WOPI croisé).
+- **NetworkPolicies** : **co-localisées** dans `infra/oxicloud/oxicloud.yaml` et
+  `infra/euro-office/euro-office.yaml` (default-deny + allow Traefik + allow WOPI
+  croisé). Elles ne sont **pas** dans `infra/network-policies/` : ces namespaces
+  étant créés par leurs propres apps (waves 10/11), les centraliser les ferait
+  appliquer avant l'existence du namespace (app network-policies en wave 8) →
+  `namespaces "oxicloud" not found`.
 
 ## Prérequis manuels (avant le 1er déploiement)
 
