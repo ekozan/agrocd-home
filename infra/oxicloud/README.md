@@ -52,21 +52,24 @@ OxiCloud ──OIDC──> Zitadel (idp.ffd.link)
 
 | Fichier | Rôle |
 |---------|------|
-| `infra/10-oxicloud.yaml` + `infra/oxicloud/oxicloud.yaml` | **OxiCloud** : NS `oxicloud` (PSA restricted-warn), ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
-| `infra/11-euro-office.yaml` + `infra/euro-office/euro-office.yaml` | **Euro-Office** : NS `euro-office` (PSA baseline-warn), ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
+| `infra/10-oxicloud.yaml` + `infra/oxicloud/oxicloud.yaml` | **OxiCloud** : ExternalSecrets (OIDC, WOPI), PVC fichiers (NFS RWX), Deployment, Service, Ingress |
+| `infra/11-euro-office.yaml` + `infra/euro-office/euro-office.yaml` | **Euro-Office** : ExternalSecret (JWT), DB externe (`DB_*` → pg-main), PVC (Longhorn), Deployment, Service, Ingress |
 
 Ressources liées :
 
+- **Namespaces** : `oxicloud` (PSA restricted-warn) et `euro-office` (PSA
+  baseline-warn) sont créés en amont par `infra/init/ns.yaml` (app init, wave -1),
+  comme les autres namespaces du repo. Les créer tôt permet à l'app
+  network-policies (wave 8) et à la réplication des secrets (`oxicloud-db`,
+  `euro-office-db`, `pg-main-ca`) de les trouver avant le déploiement des apps
+  (waves 10/11).
 - **Bases de données** (cluster CNPG `pg-main`) : rôles `oxicloud` et `euro-office`
   dans `infra/postgres/01-cluster.yaml` ; bases dans `02-db-oxicloud.yaml` et
   `02-db-eurooffice.yaml`. Les secrets `oxicloud-db` / `euro-office-db` sont
   générés par le hook `pg-secret-init` et répliqués vers les namespaces homonymes.
-- **NetworkPolicies** : **co-localisées** dans `infra/oxicloud/oxicloud.yaml` et
-  `infra/euro-office/euro-office.yaml` (default-deny + allow Traefik + allow WOPI
-  croisé). Elles ne sont **pas** dans `infra/network-policies/` : ces namespaces
-  étant créés par leurs propres apps (waves 10/11), les centraliser les ferait
-  appliquer avant l'existence du namespace (app network-policies en wave 8) →
-  `namespaces "oxicloud" not found`.
+- **NetworkPolicies** : centralisées dans `infra/network-policies/oxicloud.yaml`
+  et `euro-office.yaml` (default-deny + allow Traefik + allow WOPI croisé),
+  appliquées par l'app network-policies (wave 8).
 
 ## Prérequis manuels (avant le 1er déploiement)
 
