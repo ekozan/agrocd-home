@@ -32,16 +32,19 @@ spec:
                     - "evt.Meta.http_path startsWith '/_matrix/'"
                     - "evt.Meta.http_path startsWith '/_synapse/'"
                     - "evt.Meta.http_path startsWith '/.well-known/matrix/'"
-          appsec_configs:
-            full-appsec.yaml: |
-              name: custom/full-appsec
-              default_remediation: ban
-              inband_rules:
-                - crowdsecurity/base-config
-                - crowdsecurity/vpatch-*
-                - crowdsecurity/generic-*
-              outofband_rules:
-                - crowdsecurity/experimental-*
+              office-whitelist.yaml: |
+                name: my/office-whitelist
+                description: "Évite les faux positifs (crawl/probing) sur le trafic légitime OxiCloud (sync Nextcloud/ownCloud) et Euro-Office (éditeur collaboratif)"
+                filter: "evt.Meta.service == 'http' && evt.Meta.log_type == 'http_access-log'"
+                whitelist:
+                  reason: "OxiCloud sync + Euro-Office document server (trafic applicatif légitime à fort volume)"
+                  # Les 401/403 NE sont PAS whitelistés → la détection brute-force
+                  # (custom/http-401-bf) et les bans AppSec restent actifs sur l'auth.
+                  expression:
+                    # OxiCloud — protocole de synchro compatible Nextcloud/ownCloud
+                    - "(evt.Meta.http_path startsWith '/remote.php/' || evt.Meta.http_path startsWith '/ocs/' || evt.Meta.http_path == '/status.php') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
+                    # Euro-Office — assets et API du document server (fork OnlyOffice)
+                    - "(evt.Meta.http_path startsWith '/web-apps/' || evt.Meta.http_path startsWith '/sdkjs/' || evt.Meta.http_path startsWith '/fonts/' || evt.Meta.http_path startsWith '/coauthoring/' || evt.Meta.http_path startsWith '/hosting/' || evt.Meta.http_path startsWith '/cache/' || evt.Meta.http_path == '/healthcheck') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
           scenarios:
             http-401-bf.yaml: |
               type: leaky
@@ -70,17 +73,52 @@ spec:
               size: 1Gi
         appsec:
           enabled: true
+          # ⚠️ Les configs/règles AppSec vont sous `appsec.configs` / `appsec.rules`
+          # (PAS sous `config.*`, qui ne les monte pas dans le composant AppSec).
+          # On s'appuie sur les packs WAF TOUT-FAITS du hub CrowdSec (installés
+          # via COLLECTIONS / APPSEC_RULES ci-dessous) plutôt que des règles maison.
+          configs:
+            full-appsec.yaml: |
+              name: custom/full-appsec
+              default_remediation: ban
+              # Inband (BLOQUE immédiatement) : virtual patching CVE + génériques.
+              # Très faible taux de faux positifs → on peut bloquer directement.
+              inband_rules:
+                - crowdsecurity/base-config
+                - crowdsecurity/vpatch-*
+                - crowdsecurity/generic-*
+              # Out-of-band (ALERTE, ne bloque pas) : OWASP Core Rule Set complet
+              # (XXE, traversal, RCE, protocol/method enforcement, etc.). Le
+              # scénario crowdsecurity/crowdsec-appsec-outofband (fourni par la
+              # collection appsec-crs) corrèle ces alertes et bannit l'IP au-delà
+              # d'un seuil → équilibre couverture / faux positifs. Les exclusions
+              # Nextcloud/WebDAV (plugin crs-exclusion-plugin-nextcloud) sont
+              # incluses automatiquement par le CRS → pas de FP sur /remote.php/.
+              outofband_rules:
+                - crowdsecurity/crs
+                - crowdsecurity/experimental-*
+              on_match:
+                - filter: "IsOutBand == true"
+                  apply:
+                    - SendAlert()
           acquisitions:
             - source: appsec
               listen_addr: "0.0.0.0:7422"
               path: /
-              
-              appsec_config: crowdsecurity/appsec-default
+              appsec_config: custom/full-appsec
               labels:
                 type: appsec
           env:
+            # Collections WAF du hub : virtual patching + règles génériques +
+            # OWASP Core Rule Set (config crowdsecurity/crs + règle CRS + scénario
+            # de corrélation out-of-band).
             - name: COLLECTIONS
-              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
+              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/appsec-crs"
+            # Plugin d'exclusion CRS pour Nextcloud/WebDAV (c'est une appsec-rule,
+            # pas une collection) → installé via APPSEC_RULES ; ses datafiles sont
+            # inclus automatiquement par le CRS pour éviter les FP sur la synchro.
+            - name: APPSEC_RULES
+              value: "crowdsecurity/crs-exclusion-plugin-nextcloud"
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
           # Collections de parsers/scénarios installées au démarrage

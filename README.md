@@ -14,7 +14,8 @@ Kubernetes Cluster
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
-└── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
 ```
 
 ### Domaines exposés
@@ -29,6 +30,8 @@ Kubernetes Cluster
 | CrowdSec (UI web) | `https://crowdsec.ffd.link` (LAN uniquement) |
 | MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média via LoadBalancer MetalLB : UDP `7882` / TCP `7881`) |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
+| OxiCloud (stockage) | `https://cloud.ffd.link` |
+| Euro-Office (édition docs) | `https://office.ffd.link` |
 
 ---
 
@@ -85,6 +88,11 @@ kubectl apply -f dev.yaml
 kubectl apply -f chat.yaml
 ```
 
+> **Bureautique (OxiCloud + Euro-Office)** : déployée par la couche **infra**
+> (`infra/10-oxicloud.yaml`, `infra/11-euro-office.yaml`), donc déjà couverte par
+> l'étape 2. Prérequis manuels (secrets OpenBao + app OIDC Zitadel) :
+> voir `infra/oxicloud/README.md`.
+
 ArgoCD prend ensuite le relais et synchronise automatiquement chaque ressource.
 
 ---
@@ -104,6 +112,10 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `5` | Zitadel (IdP) |
 | `6` | Gitea |
 | `7` | Gitea Act Runner |
+| `8` | Network Policies |
+| `9` | CrowdSec UI |
+| `10` | OxiCloud (`cloud.ffd.link`) |
+| `11` | Euro-Office (`office.ffd.link`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -116,6 +128,7 @@ agrocd-home/
 ├── init.yaml                  # ArgoCD App → ./init
 ├── infra.yaml                 # ArgoCD App → ./infra
 ├── dev.yaml                   # ArgoCD App → ./dev
+├── chat.yaml                  # ArgoCD App → ./chat
 │
 ├── init/
 │   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
@@ -153,7 +166,11 @@ agrocd-home/
 │   ├── 06-gitea.yaml
 │   ├── 07-gitea-act-runner.yaml
 │   ├── 08-network-policies.yaml
-│   └── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
+│   ├── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
+│   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
+│   ├── oxicloud/             # OxiCloud (NS, ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
+│   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
+│   └── euro-office/          # Euro-Office (NS, ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -196,6 +213,8 @@ agrocd-home/
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
+| OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
+| Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
 
 ---
 
@@ -212,7 +231,9 @@ namespace database    → Cluster pg-main
                         ├── base zitadel  (rôle zitadel)
                         ├── base coder    (rôle coder)
                         ├── base gitea    (rôle gitea)
-                        └── base litellm  (rôle litellm)
+                        ├── base litellm  (rôle litellm)
+                        ├── base oxicloud (rôle oxicloud)
+                        └── base euro-office (rôle euro-office, sans TLS)
 ```
 
 - **Identifiants** : un Secret `basic-auth` par rôle, à mot de passe aléatoire.
@@ -294,8 +315,50 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `matrix.ffd.link` (Tuwunel) | `chat/tuwunel.yaml` |
 | `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
+| `cloud.ffd.link` (OxiCloud) | `infra/oxicloud/oxicloud.yaml` |
+| `office.ffd.link` (Euro-Office) | `infra/euro-office/euro-office.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
+
+**Whitelists anti-faux-positifs** (`init/01-crowdsec.yaml`, parsers `s02-enrich`) : certaines applications génèrent un fort volume de requêtes légitimes qui ressemblent à du crawl/probing. Des whitelists ciblées évitent les bans intempestifs **sans désactiver la détection brute-force** (les réponses `401`/`403` restent analysées) :
+
+| Whitelist | Trafic couvert |
+|-----------|----------------|
+| `my/matrix-whitelist` | Fédération/clients Matrix (`/_matrix/`, `/_synapse/`, well-known) |
+| `my/office-whitelist` | Sync OxiCloud compatible Nextcloud/ownCloud (`/remote.php/`, `/ocs/`, `/status.php`) + assets/API du document server Euro-Office (`/web-apps/`, `/coauthoring/`, `/hosting/`…) |
+
+> Ces whitelists agissent au niveau du **bouncer/LAPI** (sur les logs Traefik).
+> Le **WAF AppSec** (inspection inline) est géré séparément (voir ci-dessous).
+
+### WAF AppSec — packs du hub (OWASP CRS + virtual patching)
+
+La config AppSec active est `custom/full-appsec` (`appsec.configs`). Plutôt que
+des règles maison, elle s'appuie sur les **packs WAF prêts à l'emploi** du hub
+CrowdSec, installés via `COLLECTIONS` / `APPSEC_RULES` du composant AppSec :
+
+| Pack (hub) | Mode | Rôle |
+|------------|------|------|
+| `crowdsecurity/appsec-virtual-patching` (`vpatch-*`) | **inband** (bloque) | Virtual patching CVE — quasi zéro faux positif |
+| `crowdsecurity/appsec-generic-rules` (`generic-*`, `base-config`) | **inband** (bloque) | Patterns d'attaque génériques + body processors |
+| `crowdsecurity/appsec-crs` (`crowdsecurity/crs`) | **out-of-band** (alerte) | OWASP Core Rule Set complet (XXE, traversal, RCE, method enforcement…) |
+| `crowdsecurity/crs-exclusion-plugin-nextcloud` | datafiles | Exclusions CRS officielles Nextcloud/WebDAV (anti-FP synchro) |
+
+**Fonctionnement** : les règles *inband* (vpatch/generic) bloquent immédiatement.
+Le CRS tourne en *out-of-band* (n'interrompt pas la requête mais émet une alerte
+via le hook `on_match`/`SendAlert`) ; le scénario `crowdsecurity/crowdsec-appsec-outofband`
+(fourni par `appsec-crs`) corrèle ces alertes et bannit l'IP au-delà d'un seuil
+— c'est le compromis couverture/faux-positifs recommandé par CrowdSec.
+
+> **Notes** :
+> - Les exclusions Nextcloud du plugin CRS sont **incluses automatiquement** par
+>   le CRS dès que ses datafiles sont présents → pas de FP sur `/remote.php/`,
+>   `/ocs/`, etc. (en plus du whitelist bouncer `my/office-whitelist` ci-dessus).
+> - **Emplacement** : configs/règles AppSec sous `appsec.configs` / `appsec.rules`
+>   (chart crowdsec) — **pas** sous `config.*`, sinon non montées dans le
+>   composant AppSec. Les règles du hub s'installent via `COLLECTIONS` (collections)
+>   et `APPSEC_RULES` (appsec-rules individuelles), pas par fichier inline.
+> - `base-config` ne fait que configurer les *body processors* (par Content-Type) ;
+>   il n'impose pas d'allowlist de méthodes → les verbes WebDAV passent nativement.
 
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 

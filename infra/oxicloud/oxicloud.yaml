@@ -1,0 +1,260 @@
+---
+# Namespace OxiCloud — stockage de fichiers (alternative Nextcloud, Rust).
+# Le Secret `oxicloud-db` (CNPG) est répliqué ici par kubernetes-replicator,
+# et le ConfigMap `pg-main-ca` y est diffusé par trust-manager.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oxicloud
+  labels:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
+    # Passer en enforce: restricted une fois OxiCloud durci et validé.
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# ExternalSecret — credentials du client OIDC Zitadel (confidentiel).
+# Pré-requis OpenBao : kv/kubernetes/oxicloud/zitadel { client_id, client_secret }
+# Application OIDC à créer dans Zitadel (code flow + secret), redirect :
+#   https://cloud.ffd.link/api/auth/oidc/callback
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: oxicloud-oidc
+  namespace: oxicloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: oxicloud-oidc
+    creationPolicy: Owner
+  data:
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/oxicloud/zitadel
+        property: client_id
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/oxicloud/zitadel
+        property: client_secret
+---
+# ExternalSecret — clé partagée WOPI / JWT entre OxiCloud (hôte WOPI) et
+# Euro-Office (serveur de documents). LA MÊME valeur est lue par l'ExternalSecret
+# `euro-office-jwt` (clé JWT_SECRET) afin que les jetons soient mutuellement
+# valides. Pré-requis OpenBao : kv/kubernetes/office/jwt { secret } (≥ 32 car.).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: oxicloud-wopi
+  namespace: oxicloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: oxicloud-wopi
+    creationPolicy: Owner
+  data:
+    - secretKey: secret
+      remoteRef:
+        key: kubernetes/office/jwt
+        property: secret
+---
+# PersistentVolumeClaim — fichiers utilisateurs (TrueNAS NFS, RWX).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oxicloud-storage
+  namespace: oxicloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: freenas-nfs-csi
+  resources:
+    requests:
+      storage: 50Gi
+---
+# Deployment — OxiCloud (serveur HTTP Rust, ~40 Mo image / 30-50 Mo RAM idle).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oxicloud
+  namespace: oxicloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oxicloud
+  template:
+    metadata:
+      labels:
+        app: oxicloud
+    spec:
+      containers:
+        - name: oxicloud
+          image: diocrafts/oxicloud:0.8.0
+          ports:
+            - containerPort: 8086
+              name: http
+          env:
+            # ── Serveur ─────────────────────────────────────────────────────
+            - name: OXICLOUD_SERVER_HOST
+              value: "0.0.0.0"
+            - name: OXICLOUD_SERVER_PORT
+              value: "8086"
+            # Indispensable derrière un reverse-proxy (à figer avant 1re connexion)
+            - name: OXICLOUD_BASE_URL
+              value: "https://cloud.ffd.link"
+            - name: OXICLOUD_STORAGE_PATH
+              value: "/app/storage"
+            - name: MIMALLOC_PURGE_DELAY
+              value: "0"
+            # ── Base de données (pg-main / CNPG, TLS verify-full) ────────────
+            # Le mot de passe est injecté depuis le Secret oxicloud-db puis
+            # interpolé dans la connection string via l'expansion $(VAR) k8s.
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oxicloud-db
+                  key: password
+            - name: OXICLOUD_DB_CONNECTION_STRING
+              value: "postgres://oxicloud:$(PGPASSWORD)@pg-main-rw.database.svc.cluster.local:5432/oxicloud?sslmode=verify-full&sslrootcert=/etc/pg-ca/ca.crt"
+            # ── OIDC (Zitadel) ──────────────────────────────────────────────
+            - name: OXICLOUD_OIDC_ENABLED
+              value: "true"
+            - name: OXICLOUD_OIDC_ISSUER_URL
+              value: "https://idp.ffd.link"
+            - name: OXICLOUD_OIDC_REDIRECT_URI
+              value: "https://cloud.ffd.link/api/auth/oidc/callback"
+            - name: OXICLOUD_OIDC_PROVIDER_NAME
+              value: "FFD Link"
+            - name: OXICLOUD_OIDC_AUTO_PROVISION
+              value: "true"
+            - name: OXICLOUD_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oxicloud-oidc
+                  key: client_id
+            - name: OXICLOUD_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oxicloud-oidc
+                  key: client_secret
+            # ── WOPI (édition en ligne via Euro-Office) ─────────────────────
+            - name: OXICLOUD_WOPI_ENABLED
+              value: "true"
+            # Découverte côté cluster (service interne Euro-Office)
+            - name: OXICLOUD_WOPI_DISCOVERY_URL
+              value: "http://euro-office.euro-office.svc.cluster.local/hosting/discovery"
+            # URL publique que le navigateur utilise pour ouvrir l'hôte WOPI
+            - name: OXICLOUD_WOPI_PUBLIC_BASE_URL
+              value: "https://cloud.ffd.link"
+            # URL interne par laquelle Euro-Office rappelle OxiCloud (intra-cluster)
+            - name: OXICLOUD_WOPI_BASE_URL
+              value: "http://oxicloud.oxicloud.svc.cluster.local:8086"
+            - name: OXICLOUD_WOPI_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oxicloud-wopi
+                  key: secret
+            # ── Compatibilité Nextcloud / ownCloud ──────────────────────────
+            # Expose l'API/WebDAV façon Nextcloud : les clients desktop/mobile
+            # Nextcloud ET ownCloud (même lignée de protocole) peuvent
+            # synchroniser contre OxiCloud. `instance_id` identifie l'instance
+            # auprès des clients (le figer évite une resynchro complète) ;
+            # `version` est la version Nextcloud annoncée pour la compat client.
+            - name: OXICLOUD_NEXTCLOUD_ENABLED
+              value: "true"
+            - name: OXICLOUD_NEXTCLOUD_INSTANCE_ID
+              value: "ffd-oxicloud"
+            - name: OXICLOUD_NEXTCLOUD_VERSION
+              value: "28.0.4"
+          volumeMounts:
+            - name: storage
+              mountPath: /app/storage
+            - name: pg-ca
+              mountPath: /etc/pg-ca
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8086
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: oxicloud-storage
+        - name: pg-ca
+          configMap:
+            name: pg-main-ca
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: oxicloud
+  namespace: oxicloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: oxicloud
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086
+---
+# Ingress — cloud.ffd.link (protégé CrowdSec)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oxicloud
+  namespace: oxicloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: cloud.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oxicloud
+                port:
+                  number: 8086
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - cloud.ffd.link

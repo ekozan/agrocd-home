@@ -59,6 +59,19 @@ spec:
         login: true
         passwordSecret:
           name: litellm-db
+      - name: oxicloud
+        ensure: present
+        login: true
+        passwordSecret:
+          name: oxicloud-db
+      # Nom avec tiret = identifiant PG cité automatiquement par CNPG ; le nom
+      # du rôle doit correspondre au namespace (réplication du secret par le
+      # hook pg-secret-init → ns euro-office).
+      - name: euro-office
+        ensure: present
+        login: true
+        passwordSecret:
+          name: euro-office-db
 
   resources:
     requests:
