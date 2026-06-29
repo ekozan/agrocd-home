@@ -139,7 +139,7 @@ agrocd-home/
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
-│   ├── init/                 # Namespaces
+│   ├── init/                 # Namespaces (external-secrets, democratic-csi, oxicloud, euro-office)
 │   ├── post-certmanager/     # CA auto-signée + bundle
 │   ├── post-externalsecrets/ # Secret stores (OpenBao, democratic-csi)
 │   ├── pre-zitadel/          # Certificat PostgreSQL
@@ -168,9 +168,9 @@ agrocd-home/
 │   ├── 08-network-policies.yaml
 │   ├── 09-crowdsec-ui.yaml   # App ArgoCD → ./infra/crowdsec-ui
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
-│   ├── oxicloud/             # OxiCloud (NS, ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
+│   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   └── euro-office/          # Euro-Office (NS, ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │
 ├── dev/
 │   ├── coder.yaml

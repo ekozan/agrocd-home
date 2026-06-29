@@ -1,19 +1,5 @@
 ---
-# Namespace Euro-Office — serveur de documents (fork OnlyOffice).
-# L'image embarque plusieurs services (rabbitmq/redis/nginx) lancés par
-# supervisord → PSA restricted non applicable : on reste en warn/audit
-# baseline pour ne pas bloquer le pod.
-# Le Secret `euro-office-db` (CNPG) est répliqué ici par kubernetes-replicator.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: euro-office
-  labels:
-    pod-security.kubernetes.io/warn: baseline
-    pod-security.kubernetes.io/audit: baseline
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
----
+# Namespace `euro-office` : créé en amont par infra/init/ns.yaml (wave -1).
 # ExternalSecret — JWT_SECRET du serveur de documents Euro-Office.
 # MÊME valeur que OxiCloud OXICLOUD_WOPI_SECRET (OpenBao kv/kubernetes/office/jwt)
 # afin que les jetons signés par OxiCloud soient acceptés par Euro-Office.

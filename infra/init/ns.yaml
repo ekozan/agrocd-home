@@ -15,3 +15,26 @@ metadata:
     # democratic-csi a besoin de pods privileged (montage de volumes) :
     # exemption explicite en privileged (relâche les contrôles, sans risque).
     pod-security.kubernetes.io/enforce: privileged
+---
+# Namespace OxiCloud (stockage, cloud.ffd.link). Créé tôt (wave -1) pour que
+# l'app network-policies (wave 8) et la réplication des secrets (oxicloud-db,
+# pg-main-ca) le trouvent avant le déploiement de l'app oxicloud (wave 10).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oxicloud
+  labels:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+# Namespace Euro-Office (document server, office.ffd.link). L'image embarque
+# plusieurs services (rabbitmq/redis/nginx) via supervisord → PSA baseline
+# (warn/audit) pour ne pas bloquer le pod.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: euro-office
+  labels:
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline
