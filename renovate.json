@@ -1,0 +1,49 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitsDisabled"
+  ],
+  "timezone": "Europe/Paris",
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 0,
+  "argocd": {
+    "managerFilePatterns": [
+      "/\\.yaml$/",
+      "/\\.yml$/"
+    ]
+  },
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/\\.yaml$/",
+      "/\\.yml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Group all Helm chart updates (ArgoCD Applications)",
+      "matchManagers": ["argocd", "helmv3", "helm-values"],
+      "addLabels": ["helm"]
+    },
+    {
+      "description": "Group all container image updates (raw k8s manifests)",
+      "matchManagers": ["kubernetes"],
+      "addLabels": ["container-image"]
+    },
+    {
+      "description": "Require manual review for major bumps of critical infra",
+      "matchPackageNames": [
+        "cert-manager",
+        "trust-manager",
+        "zitadel",
+        "gitea",
+        "cloudnative-pg",
+        "external-secrets"
+      ],
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major", "needs-review"]
+    }
+  ]
+}
