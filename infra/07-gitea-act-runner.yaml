@@ -22,7 +22,7 @@ spec:
   source:
     chart: actions
     repoURL: https://dl.gitea.com/charts/
-    targetRevision: 0.1.0
+    targetRevision: 0.1.1
     helm:
       releaseName: gitea
       valuesObject: 
