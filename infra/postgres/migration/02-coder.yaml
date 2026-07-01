@@ -11,7 +11,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: migrate
-          image: ghcr.io/cloudnative-pg/postgresql:16
+          image: ghcr.io/cloudnative-pg/postgresql:18
           env:
             - name: SRC_PGPASSWORD
               valueFrom:
