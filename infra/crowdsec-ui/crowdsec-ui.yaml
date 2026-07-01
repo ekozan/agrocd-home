@@ -189,7 +189,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: crowdsec-web-ui
-          image: ghcr.io/theduffman85/crowdsec-web-ui:2026.6.11
+          image: ghcr.io/theduffman85/crowdsec-web-ui:2026.6.12
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
