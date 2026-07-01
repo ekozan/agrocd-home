@@ -129,7 +129,7 @@ spec:
       #     type: RuntimeDefault
       containers:
         - name: tuwunel
-          image: ghcr.io/matrix-construct/tuwunel:v1.7.1
+          image: ghcr.io/matrix-construct/tuwunel:v1.8.0
           # securityContext:
           #   allowPrivilegeEscalation: false
           #   readOnlyRootFilesystem: true   # config en RO ; data/media sont des volumes
