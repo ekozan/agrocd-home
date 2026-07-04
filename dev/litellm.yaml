@@ -33,7 +33,9 @@ spec:
       valuesObject:   
           image:
             repository: ghcr.io/berriai/litellm
-            tag: "latest"
+            # Tag épinglé (pas de `latest`) : déploiement reproductible ; les
+            # mises à jour sont proposées par Renovate.
+            tag: "v1.90.3"
           replicaCount: 1
           service:
             type: ClusterIP

@@ -19,4 +19,7 @@ spec:
     - "*.ffd.link"
   secretTemplate:
     annotations:
-      replicator.v1.mittwald.de/replicate-to: ".*"
+      # Réplication limitée aux namespaces dont un Ingress référence
+      # ffd-link-tls (+ traefik pour un éventuel TLSStore par défaut).
+      # Pas de ".*" : inutile de diffuser la clé privée du wildcard partout.
+      replicator.v1.mittwald.de/replicate-to: "traefik,zitadel,gitea,coder,crowdsec,matrix,oxicloud,euro-office"

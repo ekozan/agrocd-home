@@ -12,7 +12,9 @@ spec:
   source:
     chart: trust-manager
     repoURL: https://charts.jetstack.io
-    targetRevision: "*"
+    # Épinglé sur la série 0.x : "*" suivrait aveuglément tout futur major
+    # (supply chain) ; Renovate propose les bumps.
+    targetRevision: "0.*"
     helm:
       releaseName: trust-manager
   destination:
