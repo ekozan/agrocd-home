@@ -15,7 +15,8 @@ Kubernetes Cluster
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
-└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+└── Backup          → CNPG barman (PITR pg-main) + Longhorn (volumes) + Velero (état cluster) → S3
 ```
 
 ### Domaines exposés
@@ -65,6 +66,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
+- Credentials S3 pour les backups : `kubernetes/cnpg/backup-s3`, `kubernetes/longhorn/backup-s3` et `kubernetes/velero/s3` (cf. [docs/backup-restore.md](docs/backup-restore.md))
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -116,6 +118,8 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `9` | CrowdSec UI |
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
+| `12` | Longhorn Backup (BackupTarget S3 + RecurringJobs) |
+| `13` | Velero (backup état cluster + volumes NFS opt-in → S3) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -170,7 +174,10 @@ agrocd-home/
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── 12-longhorn-backup.yaml  # App ArgoCD → ./infra/longhorn-backup
+│   ├── longhorn-backup/      # BackupTarget S3 + RecurringJobs Longhorn
+│   └── 13-velero.yaml        # Velero (backup état cluster + volumes NFS opt-in → S3)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -208,6 +215,7 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+| Velero | `vmware-tanzu.github.io/helm-charts` | 12.1.0 | velero |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
@@ -452,6 +460,34 @@ metadata:
    - `plugin_secret` : clé ≥ 32 caractères pour chiffrer le cookie de session
 
    L'ExternalSecret `traefik-oidc` matérialise ces valeurs dans le Secret `traefik-oidc-secret`, résolu au runtime par le plugin via `urn:k8s:secret:traefik-oidc-secret:<clé>`.
+
+---
+
+## Stratégie de backup
+
+Sauvegarde en **couches complémentaires sans doublon** vers S3 (MinIO/TrueNAS) :
+
+| Couche | Quoi | Outil | Où |
+|--------|------|-------|-----|
+| 1 | PostgreSQL `pg-main` (base + WAL → **PITR**) | CNPG `barmanObjectStore` + `ScheduledBackup` | `infra/postgres/` |
+| 2 | Volumes Longhorn (block-level, incrémental) | Longhorn `BackupTarget` + `RecurringJob` | `infra/longhorn-backup/` |
+| 3 | Ressources K8s (Secrets runtime hors Git) + volumes NFS TrueNAS **opt-in** (fichiers OxiCloud, médias Matrix, via `backup.velero.io/backup-volumes`) | Velero + node-agent (Kopia) | `infra/13-velero.yaml` |
+| 4 | État déclaratif | Git + ArgoCD | ce repo |
+
+Velero ne re-sauvegarde **pas** les volumes Longhorn ni pg-main
+(`defaultVolumesToFsBackup: false`) : chaque donnée a un outil principal.
+Les credentials S3 sont injectés via External-Secrets depuis OpenBao
+(`kubernetes/cnpg/backup-s3`, `kubernetes/longhorn/backup-s3`,
+`kubernetes/velero/s3`). Les PVC de données portent
+`argocd.argoproj.io/sync-options: Prune=false` (survie au prune ArgoCD).
+
+> 📖 Procédures détaillées (secrets, planification, restauration PITR,
+> disaster recovery, snapshots ZFS/etcd/OpenBao) :
+> **[docs/backup-restore.md](docs/backup-restore.md)**.
+>
+> ⚠️ Avant la première synchro : provisionner les secrets S3 dans OpenBao et
+> adapter buckets/endpoints dans `infra/postgres/01-cluster.yaml`,
+> `infra/longhorn-backup/backuptarget.yaml` et `infra/13-velero.yaml`.
 
 ---
 

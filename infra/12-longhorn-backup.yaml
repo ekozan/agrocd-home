@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn-backup
+  namespace: argocd
+  annotations:
+    # Après les workloads applicatifs (euro-office = wave 11) : on branche les
+    # sauvegardes une fois les volumes en place.
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: main
+    path: ./infra/longhorn-backup
+  destination:
+    server: https://kubernetes.default.svc
+    # Longhorn est installé par Rancher ; on ne crée PAS le namespace, on y
+    # dépose seulement le BackupTarget et les RecurringJobs.
+    namespace: longhorn-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

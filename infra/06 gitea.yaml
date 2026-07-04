@@ -30,7 +30,12 @@ spec:
     targetRevision: 12.4.0
     helm:
       releaseName: gitea
-      valuesObject: 
+      valuesObject:
+        # Protège le PVC de données Gitea (dépôts git) contre le prune ArgoCD :
+        # si l'app est retirée du repo, le volume et ses backups survivent.
+        persistence:
+          annotations:
+            argocd.argoproj.io/sync-options: Prune=false
         image:
           tag: 1.25.3
         ingress:

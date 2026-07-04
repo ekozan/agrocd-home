@@ -62,6 +62,9 @@ metadata:
   namespace: oxicloud
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Volume protégé contre le prune ArgoCD (les fichiers utilisateurs
+    # survivent au retrait de l'app).
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteMany
@@ -87,6 +90,10 @@ spec:
     metadata:
       labels:
         app: oxicloud
+      annotations:
+        # Opt-in Velero/Kopia : les fichiers utilisateurs sont sur NFS TrueNAS
+        # (hors Longhorn), donc couverts par aucun RecurringJob Longhorn.
+        backup.velero.io/backup-volumes: storage
     spec:
       containers:
         - name: oxicloud

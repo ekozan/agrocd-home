@@ -1,0 +1,91 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      # Le chart embarque des CRDs volumineuses : évite l'erreur de taille
+      # d'annotation last-applied-configuration lors du sync.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+  source:
+    chart: velero
+    repoURL: https://vmware-tanzu.github.io/helm-charts
+    targetRevision: 12.1.0
+    helm:
+      releaseName: velero
+      valuesObject:
+        # --- Plugin object store AWS/S3 (chargé en initContainer) ---
+        initContainers:
+          - name: velero-plugin-for-aws
+            image: velero/velero-plugin-for-aws:v1.14.2
+            imagePullPolicy: IfNotPresent
+            volumeMounts:
+              - mountPath: /target
+                name: plugins
+
+        # --- Credentials S3 fournis par ExternalSecret/OpenBao ---
+        # (cf. infra/post-externalsecrets/velero-s3.yaml ; clé "cloud")
+        credentials:
+          existingSecret: velero-cloud-credentials
+
+        configuration:
+          # Velero ne duplique PAS les volumes Longhorn (déjà couverts par les
+          # RecurringJobs, cf. infra/longhorn-backup/) ni pg-main (couvert par
+          # le backup CNPG/barman avec PITR). Il sauvegarde :
+          #   1. les RESSOURCES du cluster (Secrets runtime générés hors Git :
+          #      clés LiveKit, LAPI CrowdSec, mots de passe des rôles PG…) ;
+          #   2. en OPT-IN, les volumes NFS TrueNAS hors Longhorn (fichiers
+          #      OxiCloud, médias Matrix) via l'annotation de pod
+          #      backup.velero.io/backup-volumes: <nom-du-volume> (Kopia).
+          defaultVolumesToFsBackup: false
+
+          backupStorageLocation:
+            - name: default
+              provider: aws
+              # >>> Adapter le nom du bucket <<<
+              bucket: velero
+              default: true
+              config:
+                region: us-east-1
+                # Endpoint S3 compatible (MinIO/TrueNAS). >>> À adapter <<<
+                # Pour AWS S3 natif : supprimer s3Url et s3ForcePathStyle.
+                s3ForcePathStyle: "true"
+                s3Url: https://s3.ffd.link:9000
+
+        # node-agent (DaemonSet) requis pour les backups filesystem Kopia
+        # des volumes annotés (opt-in). Nécessite hostPath → namespace velero
+        # en PSA privileged (cf. infra/init/ns.yaml).
+        deployNodeAgent: true
+
+        # --- Backups planifiés ---
+        schedules:
+          # Quotidien : toutes les ressources K8s + volumes opt-in (Kopia).
+          # Après les backups Longhorn (02:00/03:00) et CNPG (03:30).
+          daily-full:
+            disabled: false
+            schedule: "0 4 * * *"      # tous les jours à 04:00
+            useOwnerReferencesInBackup: false
+            template:
+              ttl: 720h                # rétention 30 jours
+              storageLocation: default
+              # Pas de snapshots CSI : les données Longhorn/CNPG ont leur
+              # propre chaîne de backup ; ici on ne veut que les ressources
+              # et les volumes opt-in (annotation backup-volumes).
+              snapshotVolumes: false
+              defaultVolumesToFsBackup: false
+              excludedNamespaces:
+                - kube-system

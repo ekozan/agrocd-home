@@ -1,0 +1,56 @@
+# RecurringJobs Longhorn : snapshots + backups planifiés.
+#
+# Le groupe spécial "default" s'applique automatiquement à TOUT volume qui n'est
+# rattaché à aucun autre RecurringJob/groupe. Tous les PV Longhorn du cluster
+# sont donc couverts sans annotation supplémentaire (pg-main compris : le backup
+# bloc de Longhorn complète le backup logique/PITR CNPG, il ne le remplace pas).
+#
+# Les volumes NFS TrueNAS (freenas-nfs-csi : fichiers OxiCloud, médias Matrix)
+# ne passent PAS par Longhorn → ils sont couverts par l'opt-in Velero
+# (annotation backup.velero.io/backup-volumes) + snapshots ZFS côté TrueNAS.
+#
+# Pour exclure un volume : lui ajouter le label
+#   recurring-job.longhorn.io/source: enabled
+# et l'assigner explicitement à d'autres groupes.
+---
+# Snapshots locaux fréquents (restauration rapide, ne quitte pas le cluster).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 1 * * *"        # tous les jours à 01:00
+  task: snapshot
+  groups:
+    - default
+  retain: 7                # conserve 7 snapshots
+  concurrency: 2
+---
+# Backups quotidiens vers le backupstore S3 (incrémentaux au niveau bloc).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 2 * * *"        # tous les jours à 02:00
+  task: backup
+  groups:
+    - default
+  retain: 14               # conserve 14 backups quotidiens
+  concurrency: 2
+---
+# Backup hebdomadaire à rétention longue (~2 mois).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-weekly
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * 0"        # tous les dimanches à 03:00
+  task: backup
+  groups:
+    - default
+  retain: 8                # conserve 8 backups hebdomadaires
+  concurrency: 2

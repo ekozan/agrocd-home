@@ -1,0 +1,20 @@
+# Backup physique quotidien de pg-main vers l'object store S3 (barman).
+# Combiné à l'archivage WAL continu (spec.backup du Cluster), il permet la
+# restauration à un instant arbitraire (PITR) — RPO de l'ordre de quelques
+# minutes, bien mieux que le seul snapshot quotidien.
+#
+# ⚠ Cron CNPG à 6 champs (secondes en premier) : "0 30 3 * * *" = 03:30,
+# après les backups Longhorn (02:00) et avant Velero (04:00).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-main-daily
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  schedule: "0 30 3 * * *"
+  backupOwnerReference: self
+  method: barmanObjectStore
+  cluster:
+    name: pg-main

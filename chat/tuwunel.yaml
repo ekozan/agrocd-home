@@ -73,6 +73,8 @@ metadata:
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Volume protégé contre le prune ArgoCD (les données survivent au retrait de l'app).
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteOnce
@@ -89,6 +91,8 @@ metadata:
   namespace: matrix
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Volume protégé contre le prune ArgoCD (les données survivent au retrait de l'app).
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteMany
@@ -114,6 +118,11 @@ spec:
     metadata:
       labels:
         app: tuwunel
+      annotations:
+        # Opt-in Velero/Kopia : le volume médias est sur NFS TrueNAS (hors
+        # Longhorn), il n'est donc couvert par aucun RecurringJob. /data
+        # (RocksDB, Longhorn) est déjà sauvegardé par Longhorn.
+        backup.velero.io/backup-volumes: media
     spec:
       # ── Durcissement (à activer après test) ─────────────────────────────
       # Tuwunel écrit sur /data (RocksDB, PVC Longhorn) et /media (PVC NFS).

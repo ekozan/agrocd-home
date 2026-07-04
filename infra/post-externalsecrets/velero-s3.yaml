@@ -1,0 +1,33 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: velero-cloud-credentials
+  # Namespace créé en amont par infra/init/ns.yaml (wave -1), comme oxicloud/
+  # euro-office : l'ExternalSecret (wave 2) précède l'app velero (wave 13).
+  namespace: velero
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    # Référencé par le chart Velero via credentials.existingSecret.
+    # Velero attend une clé "cloud" au format INI (profil [default]).
+    name: velero-cloud-credentials
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        cloud: |
+          [default]
+          aws_access_key_id={{ .access_key }}
+          aws_secret_access_key={{ .secret_key }}
+  data:
+    - secretKey: access_key
+      remoteRef:
+        key: kubernetes/velero/s3
+        property: access_key
+    - secretKey: secret_key
+      remoteRef:
+        key: kubernetes/velero/s3
+        property: secret_key

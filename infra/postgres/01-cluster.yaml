@@ -29,6 +29,30 @@ spec:
     size: 10Gi
     storageClass: longhorn
 
+  # Backup continu vers l'object store S3 (MinIO/TrueNAS) : base + archivage
+  # WAL → restauration à un instant arbitraire (PITR). Le backup complet
+  # quotidien est déclenché par le ScheduledBackup (03-scheduled-backup.yaml) ;
+  # credentials via l'ExternalSecret cnpg-backup-s3 (00-backup-s3-secret.yaml).
+  # ⚠ Provisionner kv/kubernetes/cnpg/backup-s3 dans OpenBao et créer le
+  # bucket AVANT de synchroniser, sinon l'archivage WAL passe en erreur.
+  # >>> Adapter bucket et endpoint à votre infrastructure <<<
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: s3://cnpg/pg-main
+      endpointURL: https://s3.ffd.link:9000
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-backup-s3
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-backup-s3
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+
   postgresql:
     parameters:
       max_connections: "200"
