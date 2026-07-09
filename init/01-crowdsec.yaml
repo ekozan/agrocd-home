@@ -59,6 +59,30 @@ spec:
                 service: http
                 type: bruteforce
                 remediation: true
+          # Profils de remédiation (montés dans le pod LAPI). ⚠️ Fournir ce
+          # fichier REMPLACE les profils par défaut → on réinclut le profil
+          # générique (ban 4h) en fin de chaîne. Premier filtre qui matche +
+          # on_success:break gagne, d'où l'ordre : brute-force auth d'abord.
+          profiles.yaml: |
+            # Brute-force auth (custom/http-401-bf) : IP clairement hostile qui
+            # martèle un endpoint → ban plus long que le défaut.
+            name: bruteforce_ban
+            filters:
+              - Alert.Remediation == true && Alert.GetScenario() == "custom/http-401-bf"
+            decisions:
+              - type: ban
+                duration: 12h
+            on_success: break
+            ---
+            # Défaut CrowdSec : toute autre décision de scope IP (scénarios hub,
+            # corrélation AppSec out-of-band, etc.) → ban 4h.
+            name: default_ip_remediation
+            filters:
+              - Alert.Remediation == true && Alert.GetScope() == "Ip"
+            decisions:
+              - type: ban
+                duration: 4h
+            on_success: break
         # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
         # plutôt que randomisé par le chart → render déterministe sous ArgoCD
         secrets:
@@ -102,17 +126,33 @@ spec:
               # sait pas modéliser. On les retire par CHEMIN via pre_eval, sans
               # toucher aux règles inband (vpatch/generic) ni au CRS ailleurs.
               pre_eval:
-                # --- Matrix (Synapse) fédération ---
-                # /_matrix/federation/v1/send/{txnId} est un PUT (spec Matrix) et
-                # certains endpoints utilisent DELETE. Le CRS 911100 (method
-                # enforcement) n'autorise que GET/HEAD/POST/OPTIONS → FP. On retire
-                # UNIQUEMENT 911100 (le reste du CRS inspecte le JSON Matrix).
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/'"
+                # --- Matrix API client (/_matrix/client/) ---
+                # API client-serveur : JSON opaque (contenu des messages, clés E2EE,
+                # session IDs base64) que le CRS ne sait pas modéliser → FP à répétition
+                # (911100 méthode, 930120 LFI sur "forwarded_count", et potentiellement
+                # SQLi/XSS sur du base64 ou du texte utilisateur) pour une valeur
+                # défensive quasi nulle (endpoints authentifiés par token, contenu
+                # stocké de façon opaque, jamais exécuté). On retire tout le CRS
+                # out-of-band sur cette API ; les règles inband (vpatch/generic) restent.
+                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/client/'"
+                  apply:
+                    - RemoveOutBandRuleByTag("OWASP_CRS")
+                # --- Matrix hors API client (fédération, media, key) + admin Synapse ---
+                # On GARDE le CRS actif (inspection du trafic inter-serveurs), en ne
+                # retirant que les règles à FP avéré :
+                #  - 911100 (method enforcement) : /_matrix/federation/v1/send/{txnId}
+                #    est un PUT (spec Matrix), d'autres endpoints utilisent DELETE.
+                #  - 930120 (LFI/OS file access) : un nom de champ type
+                #    "...sessions.<id>.forwarded_count" contient ".forward" → faux match
+                #    (ces noms transitent aussi dans les transactions de fédération).
+                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/' && !(req.URL.Path startsWith '/_matrix/client/')"
                   apply:
                     - RemoveOutBandRuleByID(911100)
+                    - RemoveOutBandRuleByID(930120)
                 - filter: "IsOutBand == true && req.URL.Path startsWith '/_synapse/'"
                   apply:
                     - RemoveOutBandRuleByID(911100)
+                    - RemoveOutBandRuleByID(930120)
                 # --- Forgejo/Gitea Actions runner (gRPC/protobuf) ---
                 # /api/actions/runner.v1.RunnerService/* en Content-Type
                 # application/proto. Le CRS ne sait pas parser le protobuf binaire →
@@ -124,17 +164,31 @@ spec:
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
                 # --- Git smart HTTP (clone/fetch/push over HTTPS) ---
-                # /{owner}/{repo}.git/{git-upload-pack,git-receive-pack,info/refs},
+                # /{owner}/{repo}.git/{git-upload-pack,git-receive-pack,info/refs} :
                 # Content-Type application/x-git-* + corps binaire (pack negotiation).
-                # Le CRS ne sait pas parser le protocole Git → 920420 (content-type)
-                # puis 949110 (score). Le préfixe owner/repo varie → match par suffixe.
-                # On retire tout le CRS UNIQUEMENT sur ces endpoints de transport ;
-                # l'UI web et l'API Gitea restent protégées.
+                # Le CRS ne sait pas parser le protocole Git → cascade de FP :
+                # 920420 (content-type), 920450 (header Content-Encoding/Git-Protocol),
+                # 920270 (null byte), 921150 (faux CR/LF), puis 949110 (score). Le
+                # préfixe owner/repo varie → match par suffixe. On retire tout le CRS
+                # (OWASP_CRS) UNIQUEMENT sur ces endpoints de transport Git ; l'UI web
+                # et l'API Gitea restent protégées.
                 - filter: "IsOutBand == true && (req.URL.Path endsWith '/git-upload-pack' || req.URL.Path endsWith '/git-receive-pack' || req.URL.Path endsWith '/info/refs')"
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
               on_match:
-                - filter: "IsOutBand == true"
+                # Whitelist 10.5.0.1 : gateway pfSense sur laquelle hairpine tout le
+                # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
+                # FQDN public). On annule alerte + événement AppSec pour cette IP →
+                # ni la corrélation out-of-band ni un blocage inband ne la banniront.
+                # ⚠️ Compromis assumé : le trafic interne hairpiné n'est plus inspecté
+                # côté ban (angle mort si un hôte interne est compromis). Le lever :
+                # split DNS / Pure NAT sans auto-outbound-NAT côté pfSense pour que
+                # les clients internes gardent leur vraie IP (ban ciblé par machine).
+                - filter: "req.RemoteAddr == '10.5.0.1'"
+                  apply:
+                    - CancelAlert()
+                    - CancelEvent()
+                - filter: "IsOutBand == true && req.RemoteAddr != '10.5.0.1'"
                   apply:
                     - SendAlert()
           acquisitions:
