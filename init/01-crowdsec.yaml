@@ -123,6 +123,16 @@ spec:
                 - filter: "IsOutBand == true && req.URL.Path startsWith '/api/actions/'"
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
+                # --- Git smart HTTP (clone/fetch/push over HTTPS) ---
+                # /{owner}/{repo}.git/{git-upload-pack,git-receive-pack,info/refs},
+                # Content-Type application/x-git-* + corps binaire (pack negotiation).
+                # Le CRS ne sait pas parser le protocole Git → 920420 (content-type)
+                # puis 949110 (score). Le préfixe owner/repo varie → match par suffixe.
+                # On retire tout le CRS UNIQUEMENT sur ces endpoints de transport ;
+                # l'UI web et l'API Gitea restent protégées.
+                - filter: "IsOutBand == true && (req.URL.Path endsWith '/git-upload-pack' || req.URL.Path endsWith '/git-receive-pack' || req.URL.Path endsWith '/info/refs')"
+                  apply:
+                    - RemoveOutBandRuleByTag("OWASP_CRS")
               on_match:
                 - filter: "IsOutBand == true"
                   apply:
