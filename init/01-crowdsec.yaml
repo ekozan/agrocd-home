@@ -126,18 +126,26 @@ spec:
               # sait pas modéliser. On les retire par CHEMIN via pre_eval, sans
               # toucher aux règles inband (vpatch/generic) ni au CRS ailleurs.
               pre_eval:
-                # --- Matrix (client + fédération) ---
-                # FP connus sur l'API Matrix (JSON aux noms de champs arbitraires,
-                # crypto E2EE, session IDs base64...) que le CRS interprète à tort :
+                # --- Matrix API client (/_matrix/client/) ---
+                # API client-serveur : JSON opaque (contenu des messages, clés E2EE,
+                # session IDs base64) que le CRS ne sait pas modéliser → FP à répétition
+                # (911100 méthode, 930120 LFI sur "forwarded_count", et potentiellement
+                # SQLi/XSS sur du base64 ou du texte utilisateur) pour une valeur
+                # défensive quasi nulle (endpoints authentifiés par token, contenu
+                # stocké de façon opaque, jamais exécuté). On retire tout le CRS
+                # out-of-band sur cette API ; les règles inband (vpatch/generic) restent.
+                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/client/'"
+                  apply:
+                    - RemoveOutBandRuleByTag("OWASP_CRS")
+                # --- Matrix hors API client (fédération, media, key) + admin Synapse ---
+                # On GARDE le CRS actif (inspection du trafic inter-serveurs), en ne
+                # retirant que les règles à FP avéré :
                 #  - 911100 (method enforcement) : /_matrix/federation/v1/send/{txnId}
-                #    est un PUT (spec Matrix), d'autres endpoints utilisent DELETE ;
-                #    le CRS n'autorise que GET/HEAD/POST/OPTIONS.
-                #  - 930120 (LFI/OS file access) : un nom de champ légitime comme
-                #    "...sessions.<id>.forwarded_count" contient la sous-chaîne
-                #    ".forward" → matche la signature de fichier Unix (faux positif).
-                # On retire UNIQUEMENT ces règles ; le reste du CRS continue
-                # d'inspecter le JSON Matrix.
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/'"
+                #    est un PUT (spec Matrix), d'autres endpoints utilisent DELETE.
+                #  - 930120 (LFI/OS file access) : un nom de champ type
+                #    "...sessions.<id>.forwarded_count" contient ".forward" → faux match
+                #    (ces noms transitent aussi dans les transactions de fédération).
+                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/' && !(req.URL.Path startsWith '/_matrix/client/')"
                   apply:
                     - RemoveOutBandRuleByID(911100)
                     - RemoveOutBandRuleByID(930120)
