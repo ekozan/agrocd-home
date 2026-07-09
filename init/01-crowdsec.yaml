@@ -126,17 +126,25 @@ spec:
               # sait pas modéliser. On les retire par CHEMIN via pre_eval, sans
               # toucher aux règles inband (vpatch/generic) ni au CRS ailleurs.
               pre_eval:
-                # --- Matrix (Synapse) fédération ---
-                # /_matrix/federation/v1/send/{txnId} est un PUT (spec Matrix) et
-                # certains endpoints utilisent DELETE. Le CRS 911100 (method
-                # enforcement) n'autorise que GET/HEAD/POST/OPTIONS → FP. On retire
-                # UNIQUEMENT 911100 (le reste du CRS inspecte le JSON Matrix).
+                # --- Matrix (client + fédération) ---
+                # FP connus sur l'API Matrix (JSON aux noms de champs arbitraires,
+                # crypto E2EE, session IDs base64...) que le CRS interprète à tort :
+                #  - 911100 (method enforcement) : /_matrix/federation/v1/send/{txnId}
+                #    est un PUT (spec Matrix), d'autres endpoints utilisent DELETE ;
+                #    le CRS n'autorise que GET/HEAD/POST/OPTIONS.
+                #  - 930120 (LFI/OS file access) : un nom de champ légitime comme
+                #    "...sessions.<id>.forwarded_count" contient la sous-chaîne
+                #    ".forward" → matche la signature de fichier Unix (faux positif).
+                # On retire UNIQUEMENT ces règles ; le reste du CRS continue
+                # d'inspecter le JSON Matrix.
                 - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/'"
                   apply:
                     - RemoveOutBandRuleByID(911100)
+                    - RemoveOutBandRuleByID(930120)
                 - filter: "IsOutBand == true && req.URL.Path startsWith '/_synapse/'"
                   apply:
                     - RemoveOutBandRuleByID(911100)
+                    - RemoveOutBandRuleByID(930120)
                 # --- Forgejo/Gitea Actions runner (gRPC/protobuf) ---
                 # /api/actions/runner.v1.RunnerService/* en Content-Type
                 # application/proto. Le CRS ne sait pas parser le protobuf binaire →
