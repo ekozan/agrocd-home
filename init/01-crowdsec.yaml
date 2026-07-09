@@ -136,7 +136,19 @@ spec:
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
               on_match:
-                - filter: "IsOutBand == true"
+                # Whitelist 10.5.0.1 : gateway pfSense sur laquelle hairpine tout le
+                # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
+                # FQDN public). On annule alerte + événement AppSec pour cette IP →
+                # ni la corrélation out-of-band ni un blocage inband ne la banniront.
+                # ⚠️ Compromis assumé : le trafic interne hairpiné n'est plus inspecté
+                # côté ban (angle mort si un hôte interne est compromis). Le lever :
+                # split DNS / Pure NAT sans auto-outbound-NAT côté pfSense pour que
+                # les clients internes gardent leur vraie IP (ban ciblé par machine).
+                - filter: "req.RemoteAddr == '10.5.0.1'"
+                  apply:
+                    - CancelAlert()
+                    - CancelEvent()
+                - filter: "IsOutBand == true && req.RemoteAddr != '10.5.0.1'"
                   apply:
                     - SendAlert()
           acquisitions:
