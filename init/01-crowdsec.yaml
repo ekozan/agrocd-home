@@ -59,6 +59,30 @@ spec:
                 service: http
                 type: bruteforce
                 remediation: true
+          # Profils de remédiation (montés dans le pod LAPI). ⚠️ Fournir ce
+          # fichier REMPLACE les profils par défaut → on réinclut le profil
+          # générique (ban 4h) en fin de chaîne. Premier filtre qui matche +
+          # on_success:break gagne, d'où l'ordre : brute-force auth d'abord.
+          profiles.yaml: |
+            # Brute-force auth (custom/http-401-bf) : IP clairement hostile qui
+            # martèle un endpoint → ban plus long que le défaut.
+            name: bruteforce_ban
+            filters:
+              - Alert.Remediation == true && Alert.GetScenario() == "custom/http-401-bf"
+            decisions:
+              - type: ban
+                duration: 12h
+            on_success: break
+            ---
+            # Défaut CrowdSec : toute autre décision de scope IP (scénarios hub,
+            # corrélation AppSec out-of-band, etc.) → ban 4h.
+            name: default_ip_remediation
+            filters:
+              - Alert.Remediation == true && Alert.GetScope() == "Ip"
+            decisions:
+              - type: ban
+                duration: 4h
+            on_success: break
         # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
         # plutôt que randomisé par le chart → render déterministe sous ArgoCD
         secrets:
