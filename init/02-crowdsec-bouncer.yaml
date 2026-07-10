@@ -122,6 +122,11 @@ rules:
     resources: ["pods"]
     # watch requis par `kubectl wait` (informer/watch sur le pod LAPI)
     verbs: ["get", "list", "watch"]
+  # rollout status sur le Deployment LAPI (attente robuste pendant un rollout :
+  # un pod en Terminating matchant type=lapi ne bloque plus l'attente)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
@@ -211,11 +216,22 @@ spec:
             - |
               set -eu
               echo "Attente du LAPI CrowdSec..."
-              kubectl -n crowdsec wait --for=condition=ready pod \
-                -l type=lapi --timeout=300s
+              # Attente sur le Deployment (pas les pods) : pendant un rollout,
+              # un ancien pod Terminating matche encore type=lapi et ne sera
+              # jamais Ready -> `kubectl wait pod` bloquerait jusqu'au timeout.
+              if ! kubectl -n crowdsec rollout status deployment/crowdsec-lapi \
+                --timeout=300s; then
+                echo "--- LAPI pas prêt, état des pods : ---"
+                kubectl -n crowdsec get pods -l type=lapi -o wide || true
+                exit 1
+              fi
 
+              # Cible le pod le plus récent (un ancien pod Terminating reste en
+              # phase Running -> on prend le dernier créé, celui du rollout)
               LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
-                -o jsonpath='{.items[0].metadata.name}')
+                --field-selector=status.phase=Running \
+                --sort-by=.metadata.creationTimestamp \
+                -o jsonpath='{.items[-1:].metadata.name}')
               echo "Pod LAPI : ${LAPI_POD}"
 
               # Clé STABLE du bouncer : générée une seule fois, jamais rotationnée
