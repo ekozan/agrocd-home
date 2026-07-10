@@ -111,7 +111,9 @@ metadata:
   name: crowdsec-bouncer-register
   namespace: crowdsec
 ---
-# Droits côté CrowdSec : lire les pods et exec cscli dans le pod LAPI
+# Droits côté CrowdSec : lire les pods et exec cscli dans le pod LAPI.
+# `watch` est requis par `kubectl rollout status` / `kubectl wait` (sans lui,
+# le reflector spamme "cannot watch resource pods" puis timeout).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -120,7 +122,10 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
@@ -210,11 +215,20 @@ spec:
             - |
               set -eu
               echo "Attente du LAPI CrowdSec..."
-              kubectl -n crowdsec wait --for=condition=ready pod \
-                -l type=lapi --timeout=300s
+              # Attente sur le Deployment (pas sur les pods) : pendant un
+              # rollout, `kubectl wait -l type=lapi` exige que TOUS les pods
+              # matchés soient Ready — y compris l'ancien en terminaison —
+              # et timeout systématiquement. rollout status attend juste que
+              # la nouvelle génération soit disponible.
+              kubectl -n crowdsec rollout status deployment/crowdsec-lapi \
+                --timeout=600s
 
+              # Pod le plus récent en Running (ignore un éventuel ancien pod
+              # encore en cours de terminaison).
               LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
-                -o jsonpath='{.items[0].metadata.name}')
+                --field-selector=status.phase=Running \
+                --sort-by=.metadata.creationTimestamp \
+                -o name | tail -1 | cut -d/ -f2)
               echo "Pod LAPI : ${LAPI_POD}"
 
               # Clé STABLE du bouncer : générée une seule fois, jamais rotationnée
