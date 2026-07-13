@@ -359,6 +359,12 @@ via le hook `on_match`/`SendAlert`) ; le scénario `crowdsecurity/crowdsec-appse
 >   et `APPSEC_RULES` (appsec-rules individuelles), pas par fichier inline.
 > - `base-config` ne fait que configurer les *body processors* (par Content-Type) ;
 >   il n'impose pas d'allowlist de méthodes → les verbes WebDAV passent nativement.
+> - **Gros uploads** : le plugin bouncer transmet le corps des requêtes à l'AppSec.
+>   Sans plafond, un upload volumineux dépasse la limite de corps de l'AppSec et,
+>   avec `crowdsecAppsecFailureBlock`, est **rejeté** (upload > ~50 Mo KO). Le
+>   middleware fixe donc `crowdsecAppsecBodyLimit: 10485760` (`init/02-crowdsec-bouncer.yaml`) :
+>   seuls les 10 premiers Mo sont inspectés, le reste streame vers le backend
+>   (OxiCloud accepte jusqu'à 10 Go / PUT direct 1 GiB).
 
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 
