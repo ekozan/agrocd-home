@@ -97,6 +97,13 @@ spec:
               outofband_rules:
                 - crowdsecurity/crs
                 - crowdsecurity/experimental-*
+              # Désactive UNE règle experimental (on garde les autres experimental-*) :
+              # experimental-no-user-agent flague toute requête sans en-tête
+              # User-Agent → faux positifs (rappels WOPI internes, clients API/sync,
+              # sondes, curl…). RemoveOutBandRuleByName la retire au chargement.
+              on_load:
+                - apply:
+                    - RemoveOutBandRuleByName("crowdsecurity/experimental-no-user-agent")
               on_match:
                 - filter: "IsOutBand == true"
                   apply:
