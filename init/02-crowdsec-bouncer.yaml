@@ -235,7 +235,18 @@ spec:
                 cscli bouncers add traefik-bouncer --key "${KEY}" >/dev/null
               echo "Bouncer 'traefik-bouncer' enregistré avec la clé stable."
 
-              # Crée/met à jour le Middleware Traefik porteur de la clé
+              # Deux middlewares partageant la même clé bouncer :
+              #  - crowdsec           : WAF strict (corps entier inspecté),
+              #    appliqué à TOUS les services publics.
+              #  - crowdsec-largebody : identique + plafond d'inspection du corps
+              #    AppSec (crowdsecAppsecBodyLimit = 10 Mo). Réservé aux services à
+              #    gros uploads (OxiCloud). Sans plafond, le plugin transmet TOUT le
+              #    corps à l'AppSec, qui rejette au-delà de sa limite (Action Reject) ;
+              #    avec failureBlock=true, les uploads > ~50 Mo étaient bloqués.
+              #    On confine cette relaxation au seul OxiCloud (fichiers = blobs
+              #    opaques) plutôt que de l'imposer globalement.
+
+              # 1) Middleware strict, pour tous les services.
               cat <<EOF | kubectl apply -f -
               apiVersion: traefik.io/v1alpha1
               kind: Middleware
@@ -253,21 +264,42 @@ spec:
                     crowdsecLapiScheme: http
                     crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
                     crowdsecLapiKey: "${KEY}"
-                    # --- AppSec (WAF) ---
                     crowdsecAppsecEnabled: "true"
                     crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
                     crowdsecAppsecScheme: http
                     crowdsecAppsecFailureBlock: "true"
                     crowdsecAppsecUnreachableBlock: "true"
-                    # Corps envoyé à l'AppSec plafonné à 10 Mo : au-delà, seul le
-                    # début de la requête est inspecté et le reste streame vers le
-                    # backend. Sans ce plafond, le plugin transmet TOUT le corps à
-                    # l'AppSec, qui rejette au-delà de sa limite (Action Reject) ;
-                    # combiné à failureBlock=true, les gros uploads (OxiCloud,
-                    # PUT jusqu'à 1 GiB) étaient bloqués (> ~50 Mo KO).
-                    crowdsecAppsecBodyLimit: "10485760"
               EOF
               echo "Middleware traefik/crowdsec appliqué."
+
+              # 2) Middleware à corps plafonné, pour OxiCloud (gros uploads).
+              #    10 Mo inspectés (en-têtes + début de requête = là où sont les
+              #    attaques) ; au-delà, le corps streame vers le backend sans
+              #    inspection WAF.
+              cat <<EOF | kubectl apply -f -
+              apiVersion: traefik.io/v1alpha1
+              kind: Middleware
+              metadata:
+                name: crowdsec-largebody
+                namespace: traefik
+              spec:
+                plugin:
+                  crowdsec:
+                    enabled: "true"
+                    logLevel: INFO
+                    banHTMLFilePath: /etc/traefik/crowdsec/ban.html
+                    crowdsecMode: stream
+                    crowdsecLapiScheme: http
+                    crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+                    crowdsecLapiKey: "${KEY}"
+                    crowdsecAppsecEnabled: "true"
+                    crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
+                    crowdsecAppsecScheme: http
+                    crowdsecAppsecFailureBlock: "true"
+                    crowdsecAppsecUnreachableBlock: "true"
+                    crowdsecAppsecBodyLimit: "10485760"
+              EOF
+              echo "Middleware traefik/crowdsec-largebody appliqué."
       volumes:
         - name: tmp
           emptyDir: {}

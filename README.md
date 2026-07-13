@@ -361,10 +361,13 @@ via le hook `on_match`/`SendAlert`) ; le scénario `crowdsecurity/crowdsec-appse
 >   il n'impose pas d'allowlist de méthodes → les verbes WebDAV passent nativement.
 > - **Gros uploads** : le plugin bouncer transmet le corps des requêtes à l'AppSec.
 >   Sans plafond, un upload volumineux dépasse la limite de corps de l'AppSec et,
->   avec `crowdsecAppsecFailureBlock`, est **rejeté** (upload > ~50 Mo KO). Le
->   middleware fixe donc `crowdsecAppsecBodyLimit: 10485760` (`init/02-crowdsec-bouncer.yaml`) :
->   seuls les 10 premiers Mo sont inspectés, le reste streame vers le backend
->   (OxiCloud accepte jusqu'à 10 Go / PUT direct 1 GiB).
+>   avec `crowdsecAppsecFailureBlock`, est **rejeté** (upload > ~50 Mo KO). Deux
+>   middlewares sont donc créés (`init/02-crowdsec-bouncer.yaml`) : `crowdsec`
+>   (WAF strict, corps entier — pour **tous** les services) et `crowdsec-largebody`
+>   (identique + `crowdsecAppsecBodyLimit: 10485760` → seuls les 10 premiers Mo
+>   inspectés, le reste streame). Seul **OxiCloud** (gros uploads, fichiers = blobs
+>   opaques) utilise `crowdsec-largebody` ; la relaxation du WAF est ainsi confinée
+>   à ce service, les autres gardent l'inspection complète.
 
 **Activer la protection sur une route** : référencer le middleware dans l'Ingress / IngressRoute.
 
@@ -437,7 +440,8 @@ Définis dans `init/03-traefik-middlewares.yaml` (namespace `traefik`, comme le 
 
 | Middleware | Rôle | Référence |
 |------------|------|-----------|
-| `crowdsec` | Bouncer + AppSec WAF CrowdSec | `traefik-crowdsec@kubernetescrd` |
+| `crowdsec` | Bouncer + AppSec WAF CrowdSec (corps entier inspecté) | `traefik-crowdsec@kubernetescrd` |
+| `crowdsec-largebody` | Idem `crowdsec` mais inspection AppSec du corps plafonnée à 10 Mo (services à gros uploads : OxiCloud) | `traefik-crowdsec-largebody@kubernetescrd` |
 | `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16` et `10.5.0.0/16` | `traefik-local-only@kubernetescrd` |
 | `oidc-auth` | Login OIDC via Zitadel (plugin `traefik-oidc-auth`) | `traefik-oidc-auth@kubernetescrd` |
 
