@@ -259,6 +259,13 @@ spec:
                     crowdsecAppsecScheme: http
                     crowdsecAppsecFailureBlock: "true"
                     crowdsecAppsecUnreachableBlock: "true"
+                    # Corps envoyé à l'AppSec plafonné à 10 Mo : au-delà, seul le
+                    # début de la requête est inspecté et le reste streame vers le
+                    # backend. Sans ce plafond, le plugin transmet TOUT le corps à
+                    # l'AppSec, qui rejette au-delà de sa limite (Action Reject) ;
+                    # combiné à failureBlock=true, les gros uploads (OxiCloud,
+                    # PUT jusqu'à 1 GiB) étaient bloqués (> ~50 Mo KO).
+                    crowdsecAppsecBodyLimit: "10485760"
               EOF
               echo "Middleware traefik/crowdsec appliqué."
       volumes:
