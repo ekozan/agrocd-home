@@ -226,7 +226,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+    # Middleware à corps AppSec plafonné (gros uploads OxiCloud) — cf.
+    # init/02-crowdsec-bouncer.yaml. Les autres services gardent traefik-crowdsec.
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec-largebody@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
