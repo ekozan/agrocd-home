@@ -117,7 +117,6 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
-| `13` | Metrics-Server — API `metrics.k8s.io`, compatible UI Rancher (app `./init`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -140,7 +139,6 @@ agrocd-home/
 │   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
 │   ├── 12-resource-policies.yaml # App ArgoCD → ./init/resource-policies
 │   ├── resource-policies/        # LimitRanges (requests/limits par défaut) + PriorityClasses (éviction)
-│   ├── 13-metrics-server.yaml    # Metrics-Server (kubectl top / HPA / UI Rancher)
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
@@ -213,7 +211,6 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
-| Metrics-Server | `kubernetes-sigs.github.io/metrics-server/` | 3.13.0 | kube-system |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
@@ -474,8 +471,9 @@ metadata:
 
 Objectif : réservation CPU/mémoire par défaut, éviction prévisible des pods
 et suivi des ressources compatible Rancher — **avec la consommation la plus
-faible possible** (aucun agent pour les policies, un seul petit pod pour le
-monitoring). Détails : [`init/resource-policies/README.md`](init/resource-policies/README.md).
+faible possible** : aucun agent pour les policies (mécanismes natifs), et le
+monitoring s'appuie sur le metrics-server déjà embarqué par la distribution.
+Détails : [`init/resource-policies/README.md`](init/resource-policies/README.md).
 
 - **LimitRanges** (app `resource-policies` dans `./init`, wave 12) : tout conteneur sans
   `resources` explicite hérite d'une request CPU/mémoire (réservation
@@ -486,12 +484,16 @@ monitoring). Détails : [`init/resource-policies/README.md`](init/resource-polic
   (défaut global) et `homelab-low` (CI/batch, `preemptionPolicy: Never`).
   Combinées aux requests par défaut (plus aucun pod BestEffort), elles
   rendent l'ordre d'éviction du kubelet prévisible : CI → applicatif → infra.
-- **Metrics-Server** (wave 13, ~10m CPU / ~50Mi RAM) : expose l'API
+- **Metrics-Server** : fourni nativement par la distribution (k3s/RKE2 —
+  Deployment `metrics-server` géré par le contrôleur d'addons dans
+  `kube-system`, label `objectset.rio.cattle.io/*`). Il expose l'API
   `metrics.k8s.io`, exactement ce que l'UI Rancher utilise pour afficher
   CPU/RAM des nœuds et workloads (`kubectl top` et HPA fonctionnent aussi).
-  Le stack `rancher-monitoring` complet (Prometheus + Grafana, 1–2 Gi de
-  RAM) reste installable plus tard si besoin de graphes historiques, sans
-  conflit avec metrics-server.
+  **Aucun déploiement dans ce repo** : une seconde instance entrerait en
+  conflit avec celle de la distro (APIService cluster-scoped unique,
+  `spec.selector` du Deployment immuable). Le stack `rancher-monitoring`
+  complet (Prometheus + Grafana, 1–2 Gi de RAM) reste installable plus
+  tard si besoin de graphes historiques, sans conflit.
 
 ```bash
 # Vérifier que la réservation par défaut s'applique (pod sans resources) :
@@ -502,9 +504,10 @@ kubectl top nodes
 kubectl top pods -A --sort-by=memory
 ```
 
-> ⚠️ **k3s / RKE2** : un metrics-server est déjà embarqué dans `kube-system`.
-> Dans ce cas, supprimer `init/13-metrics-server.yaml` (deux instances se
-> disputeraient l'APIService `v1beta1.metrics.k8s.io`).
+> Si un nœud apparaît en `<unknown>` dans `kubectl top nodes`, vérifier que
+> son port kubelet `10250/tcp` est ouvert depuis le réseau du cluster et le
+> CIDR des pods (erreur `no route to host` dans les logs metrics-server =
+> pare-feu du nœud).
 
 ---
 
