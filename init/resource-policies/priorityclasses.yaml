@@ -1,0 +1,46 @@
+# PriorityClasses — ordre d'éviction et de préemption des pods.
+#
+# Sous pression mémoire/disque, le kubelet évince d'abord les pods qui
+# consomment PLUS que leurs requests, puis départage par priorité (les
+# valeurs basses partent en premier). Combiné aux LimitRanges (qui donnent
+# des requests par défaut à tous les conteneurs), cela garantit un ordre
+# d'éviction prévisible : batch/CI → applicatif standard → infra critique.
+#
+# Coût runtime : zéro (objets purement déclaratifs, aucun pod déployé).
+#
+# Usage : ajouter `priorityClassName: homelab-critical` (ou -low) dans le
+# spec des pods concernés. Les pods sans classe explicite reçoivent
+# `homelab-standard` (globalDefault). Les classes ne s'appliquent qu'aux
+# pods créés APRÈS leur déploiement (rollout nécessaire pour l'existant).
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-critical
+value: 1000000
+globalDefault: false
+description: >-
+  Infrastructure vitale du cluster (ingress, DNS applicatif, base de données,
+  secrets, CSI). Évincée en dernier, peut préempter les classes inférieures.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-standard
+value: 1000
+globalDefault: true
+description: >-
+  Priorité par défaut de tous les workloads du cluster (globalDefault).
+  Évincée avant l'infra critique, après les workloads basse priorité.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-low
+value: -1000
+globalDefault: false
+# Un job CI qui apparaît ne doit pas expulser un pod applicatif déjà placé.
+preemptionPolicy: Never
+description: >-
+  Workloads interruptibles (CI Gitea Act Runner, jobs batch, tâches de
+  maintenance). Premiers évincés sous pression ressources.

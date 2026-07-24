@@ -36,6 +36,7 @@ spec:
     - https://democratic-csi.github.io/charts/
     - https://helm.coder.com/v2
     - https://aureq.github.io/cert-manager-webhook-ovh/
+    - https://kubernetes-sigs.github.io/metrics-server/
     - oci://docker.litellm.ai/berriai/litellm-helm
 
   # Seul le cluster local est une destination valide (tous namespaces).

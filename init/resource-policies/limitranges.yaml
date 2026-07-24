@@ -1,0 +1,221 @@
+# LimitRanges — réservation CPU/mémoire par défaut, par namespace.
+#
+# Tout conteneur créé SANS `resources` explicite hérite automatiquement :
+#   - defaultRequest : la réservation (scheduling + protection éviction) ;
+#   - default        : la limite (mémoire uniquement — pas de limite CPU
+#                      par défaut pour éviter le throttling inutile).
+# Les conteneurs qui définissent déjà leurs resources ne sont PAS modifiés.
+# Effet uniquement à la création des pods → rollout requis pour l'existant.
+#
+# Résultat : plus aucun pod BestEffort (premiers évincés, placement
+# aveugle) ; tous les pods sont au minimum Burstable avec une réservation
+# connue du scheduler. Coût runtime : zéro (admission native, aucun agent).
+#
+# Trois profils :
+#   infra légère : request 25m/64Mi,   limite mémoire 512Mi
+#   applicatif   : request 50m/128Mi,  limite mémoire 1Gi
+#   lourd        : request 100m/256Mi, limite mémoire 4Gi
+#
+# `argocd` et `kube-system` sont volontairement exclus : composants gérés
+# hors de ce repo, une limite par défaut pourrait les faire OOMKill.
+---
+# ── Profil « infra légère » ──────────────────────────────────────────────
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: traefik
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 512Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: cert-manager
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 512Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: external-secrets
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 512Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: cnpg-system
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 512Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: democratic-csi
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 512Mi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: crowdsec
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 512Mi
+---
+# ── Profil « applicatif » ────────────────────────────────────────────────
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: zitadel
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        memory: 1Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: gitea
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        memory: 1Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: coder
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        # Les workspaces Coder tournent aussi dans ce namespace : limite
+        # par défaut volontairement large (les templates fixent la leur).
+        memory: 2Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: litellm
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        memory: 1Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: matrix
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        memory: 1Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: oxicloud
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        memory: 1Gi
+---
+# ── Profil « lourd » ─────────────────────────────────────────────────────
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: database
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 256Mi
+      default:
+        memory: 4Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: euro-office
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 256Mi
+      default:
+        memory: 4Gi

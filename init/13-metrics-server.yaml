@@ -1,0 +1,55 @@
+# Metrics-Server — monitoring des ressources le plus léger possible.
+#
+# Fournit l'API `metrics.k8s.io` (kubectl top, HPA) : c'est exactement ce
+# que l'UI Rancher consomme pour afficher CPU/RAM des nœuds et workloads.
+# Empreinte : 1 pod, ~10m CPU / ~50Mi RAM — contre 1–2 Gi pour le stack
+# rancher-monitoring (Prometheus + Grafana), inutile ici.
+#
+# ⚠️ Si le cluster est un k3s/RKE2, un metrics-server est déjà embarqué
+# dans kube-system : dans ce cas supprimer ce fichier (deux instances se
+# disputeraient l'APIService cluster-scoped `v1beta1.metrics.k8s.io`).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+  source:
+    chart: metrics-server
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    targetRevision: 3.13.0
+    helm:
+      releaseName: metrics-server
+      valuesObject:
+        args:
+          # Scrape des kubelets toutes les 30s au lieu de 15s (défaut du
+          # chart) : divise par deux le CPU consommé, largement suffisant
+          # pour Rancher/kubectl top. Placé dans `args`, il passe après les
+          # `defaultArgs` du chart et l'emporte.
+          - --metric-resolution=30s
+          # À décommenter si les certificats de service des kubelets ne
+          # sont pas signés par la CA du cluster (fréquent en homelab) :
+          # l'APIService reste sinon en état NotReady.
+          # - --kubelet-insecure-tls
+        resources:
+          requests:
+            cpu: 10m
+            memory: 50Mi
+          limits:
+            memory: 150Mi
+        # Composant cluster : évincé en tout dernier.
+        priorityClassName: system-cluster-critical
