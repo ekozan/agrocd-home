@@ -116,6 +116,8 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `9` | CrowdSec UI |
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
+| `12` | Resource Policies (LimitRanges + PriorityClasses) |
+| `13` | Metrics-Server (API `metrics.k8s.io`, compatible UI Rancher) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -170,7 +172,10 @@ agrocd-home/
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── 12-resource-policies.yaml # App ArgoCD → ./infra/resource-policies
+│   ├── resource-policies/    # LimitRanges (requests/limits par défaut) + PriorityClasses (éviction)
+│   └── 13-metrics-server.yaml # Metrics-Server (kubectl top / HPA / UI Rancher)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -208,6 +213,7 @@ agrocd-home/
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+| Metrics-Server | `kubernetes-sigs.github.io/metrics-server/` | 3.13.0 | kube-system |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
@@ -461,6 +467,44 @@ metadata:
 - **CA auto-signée** pour la communication interne (PostgreSQL `pg-main` via
   `my-ca-issuer`, services internes)
 - Trust-Manager distribue automatiquement le bundle CA dans tous les namespaces
+
+---
+
+## Politique de ressources & monitoring léger
+
+Objectif : réservation CPU/mémoire par défaut, éviction prévisible des pods
+et suivi des ressources compatible Rancher — **avec la consommation la plus
+faible possible** (aucun agent pour les policies, un seul petit pod pour le
+monitoring). Détails : [`infra/resource-policies/README.md`](infra/resource-policies/README.md).
+
+- **LimitRanges** (app `resource-policies`, wave 12) : tout conteneur sans
+  `resources` explicite hérite d'une request CPU/mémoire (réservation
+  scheduler) et d'une limite mémoire, par namespace (3 profils :
+  infra légère / applicatif / lourd). Pas de limite CPU par défaut (évite le
+  throttling). Mécanisme d'admission natif → coût runtime nul.
+- **PriorityClasses** : `homelab-critical` (1000000), `homelab-standard`
+  (défaut global) et `homelab-low` (CI/batch, `preemptionPolicy: Never`).
+  Combinées aux requests par défaut (plus aucun pod BestEffort), elles
+  rendent l'ordre d'éviction du kubelet prévisible : CI → applicatif → infra.
+- **Metrics-Server** (wave 13, ~10m CPU / ~50Mi RAM) : expose l'API
+  `metrics.k8s.io`, exactement ce que l'UI Rancher utilise pour afficher
+  CPU/RAM des nœuds et workloads (`kubectl top` et HPA fonctionnent aussi).
+  Le stack `rancher-monitoring` complet (Prometheus + Grafana, 1–2 Gi de
+  RAM) reste installable plus tard si besoin de graphes historiques, sans
+  conflit avec metrics-server.
+
+```bash
+# Vérifier que la réservation par défaut s'applique (pod sans resources) :
+kubectl -n gitea get pod <pod> -o jsonpath='{.spec.containers[0].resources}'
+
+# Consommation temps réel (la même source que l'UI Rancher) :
+kubectl top nodes
+kubectl top pods -A --sort-by=memory
+```
+
+> ⚠️ **k3s / RKE2** : un metrics-server est déjà embarqué dans `kube-system`.
+> Dans ce cas, supprimer `infra/13-metrics-server.yaml` (deux instances se
+> disputeraient l'APIService `v1beta1.metrics.k8s.io`).
 
 ---
 
