@@ -116,8 +116,8 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `9` | CrowdSec UI |
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
-| `12` | Resource Policies (LimitRanges + PriorityClasses) |
-| `13` | Metrics-Server (API `metrics.k8s.io`, compatible UI Rancher) |
+| `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
+| `13` | Metrics-Server — API `metrics.k8s.io`, compatible UI Rancher (app `./init`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -138,6 +138,9 @@ agrocd-home/
 │   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
 │   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
 │   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
+│   ├── 12-resource-policies.yaml # App ArgoCD → ./init/resource-policies
+│   ├── resource-policies/        # LimitRanges (requests/limits par défaut) + PriorityClasses (éviction)
+│   ├── 13-metrics-server.yaml    # Metrics-Server (kubectl top / HPA / UI Rancher)
 │   └── vault.yaml                # HashiCorp Vault
 │
 ├── infra/
@@ -172,10 +175,7 @@ agrocd-home/
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
-│   ├── 12-resource-policies.yaml # App ArgoCD → ./infra/resource-policies
-│   ├── resource-policies/    # LimitRanges (requests/limits par défaut) + PriorityClasses (éviction)
-│   └── 13-metrics-server.yaml # Metrics-Server (kubectl top / HPA / UI Rancher)
+│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -475,9 +475,9 @@ metadata:
 Objectif : réservation CPU/mémoire par défaut, éviction prévisible des pods
 et suivi des ressources compatible Rancher — **avec la consommation la plus
 faible possible** (aucun agent pour les policies, un seul petit pod pour le
-monitoring). Détails : [`infra/resource-policies/README.md`](infra/resource-policies/README.md).
+monitoring). Détails : [`init/resource-policies/README.md`](init/resource-policies/README.md).
 
-- **LimitRanges** (app `resource-policies`, wave 12) : tout conteneur sans
+- **LimitRanges** (app `resource-policies` dans `./init`, wave 12) : tout conteneur sans
   `resources` explicite hérite d'une request CPU/mémoire (réservation
   scheduler) et d'une limite mémoire, par namespace (3 profils :
   infra légère / applicatif / lourd). Pas de limite CPU par défaut (évite le
@@ -503,7 +503,7 @@ kubectl top pods -A --sort-by=memory
 ```
 
 > ⚠️ **k3s / RKE2** : un metrics-server est déjà embarqué dans `kube-system`.
-> Dans ce cas, supprimer `infra/13-metrics-server.yaml` (deux instances se
+> Dans ce cas, supprimer `init/13-metrics-server.yaml` (deux instances se
 > disputeraient l'APIService `v1beta1.metrics.k8s.io`).
 
 ---

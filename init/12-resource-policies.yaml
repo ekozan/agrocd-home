@@ -4,8 +4,9 @@ metadata:
   name: resource-policies
   namespace: argocd
   annotations:
-    # Après les workloads : tous les namespaces cibles existent déjà.
     # Les défauts (LimitRange) ne s'appliquent qu'aux pods créés ensuite.
+    # Lors d'un bootstrap complet, les namespaces cibles sont créés plus
+    # tard par les apps infra : la sync échoue puis converge via retry.
     argocd.argoproj.io/sync-wave: "12"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -15,7 +16,7 @@ spec:
   source:
     repoURL: https://github.com/ekozan/agrocd-home.git
     targetRevision: HEAD
-    path: ./infra/resource-policies
+    path: ./init/resource-policies
 
   destination:
     server: https://kubernetes.default.svc
@@ -31,3 +32,11 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    # Bootstrap : re-tente tant que les namespaces applicatifs (créés par
+    # les apps infra) n'existent pas encore.
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        maxDuration: 5m0s
+        factor: 2
