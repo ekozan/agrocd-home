@@ -47,6 +47,12 @@ OxiCloud ──OIDC──> Zitadel (idp.ffd.link)
 > NetworkPolicy, auth mot de passe) ; `pg-main` accepte le non-SSL via la règle
 > `host` par défaut du `pg_hba` CNPG. Le secret `euro-office-db` est généré par
 > `pg-secret-init` et répliqué vers le namespace `euro-office`.
+>
+> **Schéma DB** : l'entrypoint OnlyOffice/Euro-Office ne crée le schéma que pour
+> le postgres *embarqué* (`DB_HOST=localhost`), pas pour une base externe. Un
+> **initContainer `db-schema`** charge donc `createdb.sql` dans la base
+> `euro-office` s'il est absent (idempotent). Sans ça, docservice logue « DB
+> table doc_changes does not exist », ne bind pas son port → nginx 502 → CrashLoop.
 
 ## Composants
 
