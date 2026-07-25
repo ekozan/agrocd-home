@@ -24,25 +24,10 @@ spec:
         key: kubernetes/office/jwt
         property: secret
 ---
-# PersistentVolumeClaim — données du serveur de documents (Longhorn).
-# Les documents eux-mêmes vivent dans OxiCloud ; ce volume ne porte que le
-# cache / les fichiers temporaires du document server.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: euro-office-data
-  namespace: euro-office
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: longhorn
-  resources:
-    requests:
-      storage: 8Gi
----
 # Deployment — Euro-Office Document Server (fork OnlyOffice).
+# Pas de PVC : les documents vivent dans OxiCloud ; le répertoire de données de
+# l'image (/var/lib/euro-office) est déjà inscriptible. Monter un volume vide
+# par-dessus masquerait le contenu pré-généré de l'image (fonts/App_Data).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,7 +38,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate            # PVC RWO + services internes → pas de rollout //
+    type: Recreate            # services internes (rabbitmq/redis) → pas de rollout //
   selector:
     matchLabels:
       app: euro-office
@@ -62,6 +47,42 @@ spec:
       labels:
         app: euro-office
     spec:
+      initContainers:
+        # L'entrypoint ne crée le schéma DB que pour le postgres EMBARQUÉ
+        # (DB_HOST=localhost), PAS pour une base externe. On charge donc le
+        # schéma Euro-Office/OnlyOffice dans la base `euro-office` (pg-main) s'il
+        # est absent. Idempotent : createdb.sql n'est appliqué que si la table
+        # doc_changes n'existe pas. Sans ça docservice logue « DB table
+        # doc_changes does not exist », ne bind pas son port → nginx 502 → CrashLoop.
+        - name: db-schema
+          image: ghcr.io/euro-office/documentserver:v9.3.2
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              export PGPASSWORD="$DB_PWD"
+              CONN="host=pg-main-rw.database.svc.cluster.local port=5432 dbname=euro-office user=euro-office sslmode=disable connect_timeout=10"
+              if psql "$CONN" -tAc "select to_regclass('public.doc_changes')" | grep -q doc_changes; then
+                echo "Schéma déjà présent — rien à faire."
+              else
+                F=$(find / -path '*schema/postgresql/createdb.sql' 2>/dev/null | head -1)
+                echo "Application du schéma: $F"
+                psql "$CONN" -v ON_ERROR_STOP=1 -f "$F"
+                echo "Schéma appliqué."
+              fi
+          env:
+            - name: DB_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: euro-office-db
+                  key: password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
       containers:
         - name: documentserver
           image: ghcr.io/euro-office/documentserver:v9.3.2
@@ -102,21 +123,24 @@ spec:
                 secretKeyRef:
                   name: euro-office-db
                   key: password
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/onlyoffice
+          # Démarrage lent (génération polices/thèmes ~90 s). Le startupProbe
+          # laisse jusqu'à ~5 min avant que readiness/liveness prennent le relais
+          # → évite les kills en boucle pendant l'initialisation.
+          startupProbe:
+            httpGet:
+              path: /healthcheck
+              port: 80
+            periodSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /healthcheck
               port: 80
-            initialDelaySeconds: 30
             periodSeconds: 15
-            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /healthcheck
               port: 80
-            initialDelaySeconds: 90
             periodSeconds: 30
           resources:
             requests:
@@ -125,10 +149,6 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: euro-office-data
 ---
 # Service
 apiVersion: v1
