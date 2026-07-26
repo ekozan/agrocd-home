@@ -1,0 +1,105 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: descheduler
+  namespace: argocd
+  annotations:
+    # Indépendant des autres composants : déployé en dernier.
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+
+  source:
+    chart: descheduler
+    repoURL: https://kubernetes-sigs.github.io/descheduler
+    targetRevision: 0.33.0
+    helm:
+      releaseName: descheduler
+      valuesObject:
+        # Deployment (boucle continue) plutôt que le CronJob par défaut :
+        # rééquilibrage régulier des nodes sans empilement de Jobs.
+        kind: Deployment
+        deschedulingInterval: 10m
+
+        replicas: 1
+        # Inutile avec un seul replica.
+        leaderElection:
+          enabled: false
+
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+
+        cmdOptions:
+          v: 3
+
+        deschedulerPolicyAPIVersion: descheduler/v1alpha2
+        deschedulerPolicy:
+          # Garde-fous : limite le nombre d'évictions par cycle pour éviter
+          # de déstabiliser le cluster (les pods sont recréés par leur
+          # contrôleur puis replacés par le scheduler).
+          maxNoOfPodsToEvictPerNode: 5
+          maxNoOfPodsToEvictPerNamespace: 3
+          profiles:
+            - name: default
+              pluginConfig:
+                - name: DefaultEvictor
+                  args:
+                    # Ne touche pas aux pods montant un PVC (bases, Gitea,
+                    # OxiCloud…) : leur volume est attaché au node.
+                    ignorePvcPods: true
+                    # Les pods avec emptyDir peuvent être déplacés.
+                    evictLocalStoragePods: true
+                - name: RemoveDuplicates
+                - name: LowNodeUtilization
+                  args:
+                    # Un node sous ces seuils est considéré sous-utilisé…
+                    thresholds:
+                      cpu: 20
+                      memory: 20
+                      pods: 20
+                    # …et les pods sont déplacés depuis les nodes au-dessus
+                    # de ces seuils.
+                    targetThresholds:
+                      cpu: 50
+                      memory: 50
+                      pods: 50
+                - name: RemovePodsViolatingNodeAffinity
+                  args:
+                    nodeAffinityType:
+                      - requiredDuringSchedulingIgnoredDuringExecution
+                - name: RemovePodsViolatingNodeTaints
+                - name: RemovePodsViolatingInterPodAntiAffinity
+                - name: RemovePodsViolatingTopologySpreadConstraint
+              plugins:
+                balance:
+                  enabled:
+                    - RemoveDuplicates
+                    - RemovePodsViolatingTopologySpreadConstraint
+                    - LowNodeUtilization
+                deschedule:
+                  enabled:
+                    - RemovePodsViolatingNodeAffinity
+                    - RemovePodsViolatingNodeTaints
+                    - RemovePodsViolatingInterPodAntiAffinity
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: descheduler
+
+  syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true

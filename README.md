@@ -15,7 +15,8 @@ Kubernetes Cluster
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
-└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+└── Scheduling      → Descheduler (rééquilibrage des pods entre les nodes)
 ```
 
 ### Domaines exposés
