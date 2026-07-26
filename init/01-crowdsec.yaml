@@ -218,6 +218,16 @@ spec:
               value: "crowdsecurity/crs-exclusion-plugin-nextcloud"
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
+          # L'agent lit les access logs Traefik via hostPath /var/log du nœud :
+          # il ne sert donc QUE sur le(s) nœud(s) où tourne Traefik (ici kube3,
+          # Deployment 1 replica). Sans ce nodeSelector, le DaemonSet tente de se
+          # placer sur les 3 nœuds ; sur kube2 (CPU saturé) le pod reste Pending
+          # → DaemonSet 2/3 → app crowdsec jamais Healthy → l'app init (app-of-apps)
+          # reste bloquée en sync → le hook PostSync bouncer-register (qui crée les
+          # Middlewares Traefik) ne s'exécute jamais → 404 sur les ingress protégés.
+          # ⚠️ À garder aligné avec le nœud où tourne Traefik.
+          nodeSelector:
+            kubernetes.io/hostname: kube3
           # Collections de parsers/scénarios installées au démarrage
           env:
             - name: COLLECTIONS
