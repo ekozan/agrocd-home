@@ -185,14 +185,18 @@ spec:
               on_match:
                 # Whitelist 10.5.0.1 : gateway pfSense sur laquelle hairpine tout le
                 # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
-                # FQDN public). On annule alerte + événement AppSec pour cette IP →
-                # ni la corrélation out-of-band ni un blocage inband ne la banniront.
+                # FQDN public). SetRemediation("allow") lève AUSSI le blocage inband
+                # de l'AppSec (sinon un faux positif WAF renvoie 403 à tout le LAN,
+                # ex. le login OxiCloud / l'app Nextcloud) ; CancelAlert/CancelEvent
+                # évitent en plus tout ban (corrélation out-of-band incluse).
                 # ⚠️ Compromis assumé : le trafic interne hairpiné n'est plus inspecté
-                # côté ban (angle mort si un hôte interne est compromis). Le lever :
-                # split DNS / Pure NAT sans auto-outbound-NAT côté pfSense pour que
-                # les clients internes gardent leur vraie IP (ban ciblé par machine).
+                # (ni bloqué ni banni) — angle mort si un hôte interne est compromis.
+                # Le trafic EXTERNE (vraies IP publiques) reste, lui, pleinement filtré.
+                # Le lever proprement : split DNS / Pure NAT côté pfSense pour que les
+                # clients internes gardent leur vraie IP (décisions ciblées par machine).
                 - filter: "req.RemoteAddr == '10.5.0.1'"
                   apply:
+                    - SetRemediation("allow")
                     - CancelAlert()
                     - CancelEvent()
                 - filter: "IsOutBand == true && req.RemoteAddr != '10.5.0.1'"
