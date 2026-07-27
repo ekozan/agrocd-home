@@ -141,9 +141,14 @@ spec:
             # ── WOPI (édition en ligne via Euro-Office) ─────────────────────
             - name: OXICLOUD_WOPI_ENABLED
               value: "true"
-            # Découverte côté cluster (service interne Euro-Office)
+            # Découverte via l'URL PUBLIQUE : le document server construit les
+            # urlsrc du XML d'après le header Host de la requête. Interrogé via
+            # le service interne, il renvoyait des URLs d'éditeur
+            # *.svc.cluster.local que le navigateur ne peut pas atteindre
+            # (bloquées par la CSP form-action). Les rappels WOPI restent
+            # intra-cluster via OXICLOUD_WOPI_BASE_URL.
             - name: OXICLOUD_WOPI_DISCOVERY_URL
-              value: "http://euro-office.euro-office.svc.cluster.local/hosting/discovery"
+              value: "https://office.ffd.link/hosting/discovery"
             # URL publique que le navigateur utilise pour ouvrir l'hôte WOPI
             - name: OXICLOUD_WOPI_PUBLIC_BASE_URL
               value: "https://cloud.ffd.link"
