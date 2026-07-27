@@ -102,6 +102,16 @@ spec:
                 secretKeyRef:
                   name: euro-office-jwt
                   key: JWT_SECRET
+            # ── WOPI (intégration OxiCloud) ──────────────────────────────────
+            # Désactivé par défaut dans l'image : sans WOPI_ENABLED le serveur
+            # ne publie pas /hosting/discovery (404) et OxiCloud ne peut pas
+            # découvrir l'éditeur. ALLOW_PRIVATE_IP_ADDRESS autorise les
+            # rappels WOPI (CheckFileInfo/GetFile/PutFile) vers l'IP cluster
+            # d'OxiCloud, que le request-filtering-agent bloque par défaut.
+            - name: WOPI_ENABLED
+              value: "true"
+            - name: ALLOW_PRIVATE_IP_ADDRESS
+              value: "true"
             # ── Base de données externe : pg-main (CNPG) ─────────────────────
             # Renseigner DB_* désactive le PostgreSQL embarqué de l'image.
             # RabbitMQ et Redis restent embarqués (non déportés).
