@@ -30,11 +30,23 @@ spec:
     targetRevision: 2.34.0
     helm:
       releaseName: coder
-      valuesObject:    
+      valuesObject:
         coder:
           envUseClusterAccessURL: true
           replicaCount: 1
           workspaceProxy: false
+          # Le chart réserve par défaut 2 CPU / 4Gi (requests = limits) pour le
+          # serveur Coder, alors qu'à vide il ne consomme quasi rien → ça saturait
+          # kube2 (50 % du nœud) et empêchait d'autres pods de se scheduler
+          # (agent CrowdSec Pending → cascade de blocage). On baisse les *requests*
+          # (le serveur peut toujours burster jusqu'aux *limits*).
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
           ingress:
             enable: true
             # Protection CrowdSec (bouncer + AppSec) sur Coder
