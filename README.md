@@ -329,6 +329,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 |-----------|----------------|
 | `my/matrix-whitelist` | Fédération/clients Matrix (`/_matrix/`, `/_synapse/`, well-known) |
 | `my/office-whitelist` | Sync OxiCloud compatible Nextcloud/ownCloud (`/remote.php/`, `/ocs/`, `/status.php`) + assets/API du document server Euro-Office (`/web-apps/`, `/coauthoring/`, `/hosting/`…) |
+| `my/ente-s3-whitelist` | API de stockage objet S3 d'Ente (`s3.ffd.link`) — un objet = un chemin unique, la synchro ressemble à du crawl |
 
 > Ces whitelists agissent au niveau du **bouncer/LAPI** (sur les logs Traefik).
 > Le **WAF AppSec** (inspection inline) est géré séparément (voir ci-dessous).
@@ -352,7 +353,28 @@ via le hook `on_match`/`SendAlert`) ; le scénario `crowdsecurity/crowdsec-appse
 (fourni par `appsec-crs`) corrèle ces alertes et bannit l'IP au-delà d'un seuil
 — c'est le compromis couverture/faux-positifs recommandé par CrowdSec.
 
+**Exclusions CRS ciblées** (hook `pre_eval` de `custom/full-appsec`) : le CRS
+out-of-band produit des faux positifs sur des protocoles qu'il ne sait pas
+modéliser (binaire, JSON opaque, signatures). On le retire **par chemin/vhost**,
+sans jamais toucher aux règles *inband* (vpatch/generic), qui restent actives
+partout :
+
+| Périmètre | Règles retirées | Motif |
+|-----------|-----------------|-------|
+| `/_matrix/client/` | tout le CRS (tag `OWASP_CRS`) | JSON opaque (messages, clés E2EE, base64) |
+| `/_matrix/` (hors client), `/_synapse/` | `911100`, `930120` | `PUT`/`DELETE` de la spec Matrix + `.forwarded_count` lu comme du LFI |
+| `/api/actions/` (runner Forgejo) | tout le CRS | gRPC/protobuf binaire lu comme des ARGS |
+| `…/git-upload-pack`, `…/git-receive-pack`, `…/info/refs` | tout le CRS | transport Git binaire (`application/x-git-*`) |
+| `s3.ffd.link` (stockage Ente) | tout le CRS + `901340` | URLs pré-signées SigV4 + blobs chiffrés (cf. note ci-dessous) |
+
 > **Notes** :
+> - **`901340` (« Enabling body inspection », zone `REQBODY_PROCESSOR`)** est une
+>   règle de *configuration* du CRS (elle force l'inspection du corps quand le
+>   `Content-Type` n'est ni urlencoded/multipart/xml/json — typiquement un upload
+>   binaire), pas une détection d'attaque. Comptée par la corrélation
+>   out-of-band, elle suffisait à bannir le backend S3 d'Ente : elle est donc
+>   retirée **sur ce vhost uniquement** (la retirer globalement désactiverait
+>   l'inspection des corps pour tout le CRS).
 > - Les exclusions Nextcloud du plugin CRS sont **incluses automatiquement** par
 >   le CRS dès que ses datafiles sont présents → pas de FP sur `/remote.php/`,
 >   `/ocs/`, etc. (en plus du whitelist bouncer `my/office-whitelist` ci-dessus).

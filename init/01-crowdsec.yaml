@@ -45,6 +45,19 @@ spec:
                     - "(evt.Meta.http_path startsWith '/remote.php/' || evt.Meta.http_path startsWith '/ocs/' || evt.Meta.http_path == '/status.php') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
                     # Euro-Office — assets et API du document server (fork OnlyOffice)
                     - "(evt.Meta.http_path startsWith '/web-apps/' || evt.Meta.http_path startsWith '/sdkjs/' || evt.Meta.http_path startsWith '/fonts/' || evt.Meta.http_path startsWith '/coauthoring/' || evt.Meta.http_path startsWith '/hosting/' || evt.Meta.http_path startsWith '/cache/' || evt.Meta.http_path == '/healthcheck') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
+              ente-s3-whitelist.yaml: |
+                name: my/ente-s3-whitelist
+                description: "Évite les faux positifs des scénarios HTTP sur l'API S3 d'Ente (URLs pré-signées, un objet = un chemin unique)"
+                filter: "evt.Meta.service == 'http' && evt.Meta.log_type == 'http_access-log'"
+                whitelist:
+                  reason: "Endpoint S3 (s3.ffd.link) — synchro Ente : rafales de GET/PUT sur des chemins d'objets tous distincts"
+                  # Une synchro photo = des dizaines de requêtes/seconde sur des
+                  # chemins uniques (/{bucket}/{ownerID}/{uuid}) → profil identique à
+                  # celui d'un crawler pour http-crawl-non-statics / http-probing.
+                  # Les 401/403 NE sont PAS whitelistés → une IP qui martèle des URLs
+                  # pré-signées invalides reste détectée (brute-force/énumération).
+                  expression:
+                    - "evt.Meta.target_fqdn == 's3.ffd.link' && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
           scenarios:
             http-401-bf.yaml: |
               type: leaky
@@ -175,6 +188,29 @@ spec:
                 - filter: "IsOutBand == true && (req.URL.Path endsWith '/git-upload-pack' || req.URL.Path endsWith '/git-receive-pack' || req.URL.Path endsWith '/info/refs')"
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
+                # --- Stockage objet S3 (s3.ffd.link) — backend d'Ente ---
+                # Tout ce vhost est une API S3 : URLs pré-signées SigV4 (GET/PUT sur
+                # /{bucket}/{ownerID}/{uuid}?X-Amz-Algorithm=…&X-Amz-Signature=…) et
+                # corps = blobs chiffrés côté client. Le CRS ne sait modéliser ni l'un
+                # ni l'autre → FP en cascade :
+                #  - 901340 « Enabling body inspection » (zone REQBODY_PROCESSOR) : règle
+                #    de CONFIGURATION du CRS (forceRequestBodyVariable quand le
+                #    Content-Type n'est ni urlencoded/multipart/xml/json — le cas d'un
+                #    upload S3 binaire), jamais un signal d'attaque. C'est elle qui a
+                #    banni Ente ; upstream la marque nolog/noauditlog.
+                #  - les signatures/credentials SigV4 (hex 64, base64, '/' et '%2F' dans
+                #    X-Amz-Credential) ressemblent à des payloads d'injection → risque de
+                #    920xxx/930xxx/941xxx puis 949110 (score) sur du trafic parfaitement
+                #    légitime.
+                # On retire donc TOUT le CRS out-of-band sur ce vhost. Les règles inband
+                # (vpatch CVE + generic) restent actives → le stockage reste protégé
+                # contre les exploits connus.
+                - filter: "IsOutBand == true && req.Host startsWith 's3.ffd.link'"
+                  apply:
+                    - RemoveOutBandRuleByTag("OWASP_CRS")
+                    # Filet de sécurité : 901340 est une règle de config du CRS et
+                    # pourrait ne pas porter le tag OWASP_CRS → retrait par ID aussi.
+                    - RemoveOutBandRuleByID(901340)
               # Désactive UNE règle experimental (on garde les autres experimental-*) :
               # experimental-no-user-agent flague toute requête sans en-tête
               # User-Agent → faux positifs (rappels WOPI internes, clients API/sync,
