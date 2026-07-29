@@ -63,6 +63,15 @@ subjects:
 # Healthy sans le Secret → le hook ne se déclenche jamais). Même schéma que le
 # Job crowdsec-lapi-secret-gen. Force/Replace : le Job est immuable, on le
 # remplace à chaque sync (idempotent : mot de passe stable réutilisé).
+#
+# ⚠️ PAS de ttlSecondsAfterFinished ici. Une ressource NORMALE (non-hook) est
+# comparée au dépôt Git par ArgoCD : si le TTL controller supprime le Job une
+# fois terminé, l'application passe OutOfSync (ressource Missing) et selfHeal le
+# recrée aussitôt → le Job se relance en boucle toutes les ~10 min, pour
+# toujours. Le Job terminé est donc conservé (objet unique, réutilisé) ; il est
+# relancé uniquement lors d'une vraie sync grâce à Force/Replace. Le Job
+# crowdsec-bouncer-register peut, lui, garder un TTL car c'est un hook PostSync
+# (les hooks sont exclus du diff ArgoCD).
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -73,7 +82,6 @@ metadata:
     argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
   backoffLimit: 5
-  ttlSecondsAfterFinished: 600
   template:
     spec:
       serviceAccountName: crowdsec-ui-register
@@ -112,28 +120,34 @@ spec:
               echo "Pod LAPI : ${LAPI_POD}"
 
               # Mot de passe STABLE : généré une seule fois, jamais rotationné
+              PW_IS_NEW=0
               PW=$(kubectl -n crowdsec get secret crowdsec-web-ui-credentials \
                 -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
               if [ -z "${PW}" ]; then
                 PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
                 kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
                   --from-literal=password="${PW}"
+                PW_IS_NEW=1
                 echo "Mot de passe UI généré (stable)."
               fi
 
-              # Enregistre la machine SI ELLE N'EXISTE PAS encore. Idempotent :
-              # le Job est rejoué périodiquement (ttl + selfHeal) et on ne veut
-              # PAS supprimer/re-créer la machine à chaque passage (cela couperait
+              # Enregistre la machine SI ELLE N'EXISTE PAS encore — on ne veut PAS
+              # supprimer/re-créer la machine à chaque sync (cela couperait
               # brièvement la session LAPI de l'UI). Le mot de passe étant stable,
-              # un simple "add if missing" suffit à l'auto-réparation.
+              # un "add if missing" suffit dans le cas nominal.
+              # Exception : si le Secret vient d'être (re)généré alors que la
+              # machine existe déjà (Secret supprimé à la main, namespace recréé),
+              # les deux côtés divergent et l'UI prend des 403. On resynchronise
+              # alors le mot de passe côté LAPI avec --force (mise à jour en place,
+              # pas de suppression).
               # -f /dev/null : on n'écrit pas de fichier credentials (l'UI lit l'env).
-              if kubectl -n crowdsec exec "${LAPI_POD}" -- \
+              if [ "${PW_IS_NEW}" = "0" ] && kubectl -n crowdsec exec "${LAPI_POD}" -- \
                    cscli machines list -o json 2>/dev/null \
                    | grep -q '"machineId": *"crowdsec-web-ui"'; then
                 echo "Machine 'crowdsec-web-ui' déjà enregistrée — rien à faire."
               else
                 kubectl -n crowdsec exec "${LAPI_POD}" -- \
-                  cscli machines add crowdsec-web-ui --password "${PW}" -f /dev/null
+                  cscli machines add crowdsec-web-ui --password "${PW}" --force -f /dev/null
                 echo "Machine 'crowdsec-web-ui' enregistrée avec le mot de passe stable."
               fi
       volumes:
