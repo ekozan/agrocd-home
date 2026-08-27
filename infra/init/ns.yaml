@@ -54,3 +54,19 @@ metadata:
   labels:
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted
+---
+# Namespace `flexisip` : proxy SIP « push gateway » devant le FreePBX ESXi.
+# Créé tôt (wave -1) pour que l'app network-policies (wave 8) et la réplication
+# du certificat wildcard `ffd-link-tls` le trouvent avant l'app flexisip
+# (wave 13).
+#
+# PSA baseline (warn/audit) : l'image officielle Belledonne démarre en root
+# (entrypoint + logs) — `restricted` refuserait le pod. Aucune capability
+# additionnelle n'est demandée.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flexisip
+  labels:
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline

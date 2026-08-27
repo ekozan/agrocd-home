@@ -1,0 +1,47 @@
+---
+# default-deny ingress dans le namespace flexisip.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: flexisip
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Softphones du LAN + FreePBX (VM ESXi) → proxy SIP Flexisip.
+#
+# Les deux sens passent par ces ports : les postes s'enregistrent et appellent
+# via 5061 (TLS), et le PBX rappelle Flexisip pour les appels entrants (le
+# Contact ayant été masqué par ContactRouteInserter).
+#
+# Le Service LoadBalancer est en externalTrafficPolicy=Local : l'IP source est
+# préservée, ces ipBlock voient donc la vraie adresse.
+#
+# Ouverture aux postes en mobilité : ajouter une policy avec
+# `ipBlock: 0.0.0.0/0` limitée au 5061 — jamais le 5060 en clair.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-sip-from-lan
+  namespace: flexisip
+spec:
+  podSelector:
+    matchLabels:
+      app: flexisip
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.10.0.0/16
+        - ipBlock:
+            cidr: 10.5.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5061
+        - protocol: TCP
+          port: 5060
+        - protocol: UDP
+          port: 5060

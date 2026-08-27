@@ -1,0 +1,258 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Flexisip — proxy SIP « push gateway » devant le FreePBX (VM ESXi).
+#
+# Problème résolu : sur mobile, un softphone en veille n'a plus de socket SIP
+# ouverte. Sans réveil par notification push, un appel entrant ne sonne pas.
+# FreePBX ne sait pas envoyer de push ; Flexisip (Belledonne, éditeur de
+# Linphone) sait le faire.
+#
+# Topologie retenue — Flexisip en frontal, FreePBX inchangé :
+#
+#   Linphone ──sips:5061──► Flexisip (cluster) ──sip:5060──► FreePBX (ESXi)
+#      ▲                       │  REGISTER relayé : l'authentification reste
+#      └── push (APNs/FCM) ◄───┘  côté FreePBX (reg-on-response)
+#
+#   • REGISTER : relayé au PBX, la liaison n'est enregistrée qu'après le 200 OK
+#     du PBX → aucun compte à dupliquer, les mots de passe restent sur FreePBX.
+#   • ContactRouteInserter réécrit le Contact vu par le PBX : les appels
+#     entrants repassent par Flexisip, qui réveille le téléphone par push puis
+#     lui transmet l'INVITE.
+#   • Média (RTP) : direct entre le poste et FreePBX — MediaRelay désactivé,
+#     donc aucune plage RTP à publier côté cluster.
+#
+# ⚠️  Le push n'est PAS fonctionnel avec l'application Linphone du store : les
+# jetons push appartiennent au projet Firebase / au certificat APNs de
+# Belledonne. Il faut une application recompilée (SDK Linphone) avec ton propre
+# projet Firebase et ton propre certificat APNs — cf. README.md § Push.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flexisip-config
+  namespace: flexisip
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  flexisip.conf: |
+    ##
+    ## Géré par GitOps (infra/flexisip/flexisip.yaml) — NE PAS ÉDITER DANS LE POD
+    ## Référence des paramètres : flexisip --dump-all-default
+    ##
+
+    [global]
+    log-level=error
+    syslog-level=error
+    # Le pod ne peut pas se lier à l'IP publique du LoadBalancer : `maddr`
+    # indique l'adresse d'écoute réelle (toutes interfaces), tandis que la
+    # partie hôte de l'URI est le nom annoncé dans Via/Record-Route — c'est ce
+    # nom que les clients doivent joindre et qui doit correspondre au
+    # certificat TLS.
+    transports=sips:sip.ffd.link:5061;maddr=0.0.0.0 sip:sip.ffd.link:5060;maddr=0.0.0.0
+    # Certificat wildcard *.ffd.link (Secret `ffd-link-tls` répliqué par
+    # kubernetes-replicator). `tls-certificates-check-interval` (1 min par
+    # défaut) fait recharger le certificat après un renouvellement cert-manager.
+    tls-certificates-file=/etc/flexisip/tls/tls.crt
+    tls-certificates-private-key=/etc/flexisip/tls/tls.key
+    # Noms désignant cette instance : évite les boucles de routage.
+    aliases=sip.ffd.link flexisip.flexisip.svc.cluster.local
+
+    [module::Registrar]
+    enabled=true
+    # Domaines pour lesquels Flexisip tient le registre. `pbx.ffd.link` est le
+    # domaine porté par les comptes des postes (reg_identity côté Linphone),
+    # `sip.ffd.link` est l'adresse du proxy lui-même.
+    reg-domains=pbx.ffd.link sip.ffd.link ffd.link
+    # ⭐ Clé de voûte du montage : le REGISTER est transmis au PBX et la liaison
+    # n'est mémorisée qu'en cas de 200 OK. L'authentification (et donc la base
+    # des postes) reste entièrement sur FreePBX.
+    reg-on-response=true
+    # Registre en mémoire : une seule instance, redémarrage = ré-enregistrement
+    # des postes (quelques secondes). Passer à Redis pour de la HA.
+    db-implementation=internal
+    # Un compte peut être joint sur plusieurs appareils (desktop + mobile).
+    max-contacts-by-aor=5
+
+    [module::ContactRouteInserter]
+    enabled=true
+    # Le Contact transmis au PBX est masqué par l'adresse de Flexisip : les
+    # appels entrants repassent donc par le proxy, qui peut réveiller le poste.
+    masquerade-contacts-on-registers=true
+    masquerade-contacts-for-invites=false
+    insert-domain=false
+
+    [module::Router]
+    enabled=true
+    # Indispensable au push : l'appel est mis en attente le temps que le
+    # téléphone se réveille et se ré-enregistre, puis l'INVITE lui est délivré.
+    fork-late=true
+
+    [module::PushNotification]
+    enabled=true
+    # Envoi immédiat (les mobiles n'ont pas de connexion permanente).
+    timeout=0
+    # iOS — un fichier PEM par application : /etc/flexisip/apn/<appid>.prod.pem
+    # (+ .voip.prod.pem pour PushKit). Répertoire vide tant que le Secret
+    # `flexisip-apns` n'existe pas : le push iOS est alors simplement inactif.
+    apple=true
+    apple-certificate-dir=/etc/flexisip/apn
+    # Android — compte de service Firebase (API FCM v1) :
+    #   firebase-service-accounts=<numéro de projet>:/etc/flexisip/firebase/<fichier>.json
+    # À décommenter une fois le Secret `flexisip-firebase` en place.
+    firebase=true
+    #firebase-service-accounts=123456789012:/etc/flexisip/firebase/firebase.json
+
+    [module::MediaRelay]
+    # Le média va directement du poste au PBX : pas de relais RTP dans le
+    # cluster (sinon il faudrait y publier toute une plage de ports UDP).
+    enabled=false
+
+    [module::Authentication]
+    # Déléguée à FreePBX (cf. reg-on-response ci-dessus).
+    enabled=false
+
+    [module::Forward]
+    enabled=true
+    # Tout ce que le Router n'a pas su router (donc tout ce qui ne vise pas un
+    # poste enregistré) part vers le PBX, d'après /config/routes.conf.
+    routes-config-path=/config/routes.conf
+    default-transport=udp
+  routes.conf: |
+    # Route par défaut vers le FreePBX (VM ESXi) — format :
+    #   <route SIP>   <filtre Flexisip>
+    #
+    # `true` = toutes les requêtes hors dialogue que le module Router n'a pas
+    # déjà dirigées vers un poste enregistré. Adapter l'hôte, le port et le
+    # transport à la VM ; si le PBX écoute en TLS, utiliser
+    # <sips:pbx.ffd.link:5061>.
+    <sip:pbx.ffd.link:5060;transport=udp>   true
+---
+# Deployment — proxy Flexisip (instance unique : registre en mémoire).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flexisip
+  namespace: flexisip
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: flexisip
+  template:
+    metadata:
+      labels:
+        app: flexisip
+    spec:
+      containers:
+        - name: flexisip
+          # Image officielle Belledonne. Le registre GitLab n'étant pas
+          # accessible depuis l'environnement de préparation, vérifier que ce
+          # tag existe avant le premier sync :
+          #   docker pull gitlab.linphone.org:4567/bc/public/flexisip:2.6.1
+          image: gitlab.linphone.org:4567/bc/public/flexisip:2.6.1
+          # `--server proxy` : l'entrypoint démarrerait sinon aussi le serveur
+          # de présence, inutile ici.
+          args:
+            - --server
+            - proxy
+            - --config
+            - /config/flexisip.conf
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 5060
+              name: sip-udp
+              protocol: UDP
+            - containerPort: 5060
+              name: sip-tcp
+              protocol: TCP
+            - containerPort: 5061
+              name: sip-tls
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tls
+              mountPath: /etc/flexisip/tls
+              readOnly: true
+            # Identifiants push — volumes optionnels : tant que les Secrets
+            # n'existent pas, le pod démarre et le push reste inactif.
+            - name: apns
+              mountPath: /etc/flexisip/apn
+              readOnly: true
+            - name: firebase
+              mountPath: /etc/flexisip/firebase
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 5061
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: 5061
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: flexisip-config
+        - name: tls
+          secret:
+            secretName: ffd-link-tls
+        - name: apns
+          secret:
+            secretName: flexisip-apns
+            optional: true
+        - name: firebase
+          secret:
+            secretName: flexisip-firebase
+            optional: true
+---
+# Service LoadBalancer (MetalLB) — point d'entrée SIP des softphones.
+#
+# `sip.ffd.link` doit pointer vers l'IP attribuée ici (la figer via
+# l'annotation MetalLB). externalTrafficPolicy=Local préserve l'IP source des
+# clients, nécessaire aux NetworkPolicies et aux journaux Flexisip.
+#
+# Aucun port RTP : le média ne traverse pas le cluster (MediaRelay désactivé).
+apiVersion: v1
+kind: Service
+metadata:
+  name: flexisip-sip
+  namespace: flexisip
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # metallb.universe.tf/loadBalancerIPs: "10.10.x.y"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: flexisip
+  ports:
+    - name: sip-tls
+      port: 5061
+      targetPort: 5061
+      protocol: TCP
+    - name: sip-tcp
+      port: 5060
+      targetPort: 5060
+      protocol: TCP
+    - name: sip-udp
+      port: 5060
+      targetPort: 5060
+      protocol: UDP

@@ -3,8 +3,8 @@
 # Provisionnement distant des clients Linphone.
 #
 # Le PBX lui-même n'est PAS dans le cluster : FreePBX/Asterisk tourne sur une
-# VM ESXi. Le cluster ne fournit ici que le service de configuration des
-# softphones — Linphone (desktop, Android, iOS) sait récupérer sa configuration
+# VM ESXi. Le cluster fournit la configuration des softphones (ce fichier) et
+# le proxy SIP Flexisip qui leur apporte le push (infra/flexisip/) — Linphone (desktop, Android, iOS) sait récupérer sa configuration
 # au démarrage depuis une URL HTTPS (« remote provisioning », format XML
 # lpconfig). On y publie tout ce qui est commun au parc — domaine SIP,
 # transport, chiffrement média, codecs — pour que l'utilisateur n'ait plus qu'à
@@ -48,20 +48,31 @@ data:
       </section>
 
       <!-- ══════════════════════════════════════════════════════════════════
-           FreePBX (VM ESXi) — SEUL BLOC À ADAPTER.
+           Compte SIP — SEUL BLOC À ADAPTER.
 
            Ces valeurs sont pré-remplies à la création d'un compte : l'assistant
            Linphone ne demande plus que l'identifiant et le mot de passe. Le
            point d'interrogation de reg_identity est remplacé par le nom
            d'utilisateur saisi.
 
-           Variante sans TLS (transport UDP en clair, port 5060) :
+           • reg_proxy   = Flexisip (proxy sortant, dans le cluster) : c'est lui
+                           qui réveille le téléphone par push. Voir
+                           infra/flexisip/.
+           • reg_identity = domaine du PBX (VM ESXi), qui reste l'autorité des
+                           comptes — Flexisip ne fait que relayer le REGISTER.
+
+           Sans Flexisip (enregistrement direct sur le PBX, pas de push) :
              reg_proxy = &lt;sip:pbx.ffd.link:5060;transport=udp&gt;
-           …et passer media_encryption à « none » ci-dessus.
+           …et passer media_encryption à « none » ci-dessus si le PBX n'a pas
+           de transport TLS.
            ══════════════════════════════════════════════════════════════════ -->
       <section name="proxy_default_values">
-        <entry name="reg_proxy" overwrite="true">&lt;sip:pbx.ffd.link:5061;transport=tls&gt;</entry>
+        <entry name="reg_proxy" overwrite="true">&lt;sip:sip.ffd.link:5061;transport=tls&gt;</entry>
         <entry name="reg_identity" overwrite="true">sip:?@pbx.ffd.link</entry>
+        <!-- Ajoute les paramètres pn-* au Contact du REGISTER : c'est ainsi que
+             Flexisip apprend comment réveiller ce téléphone. Sans effet si
+             l'application n'a pas de jeton push (build sans Firebase/APNs). -->
+        <entry name="push_notification_allowed" overwrite="true">1</entry>
         <!-- realm par défaut de chan_pjsip / FreePBX -->
         <entry name="realm" overwrite="true">asterisk</entry>
         <entry name="reg_expires" overwrite="true">600</entry>
@@ -73,8 +84,9 @@ data:
         <entry name="quality_reporting_enabled" overwrite="true">0</entry>
       </section>
 
-      <!-- Traversée de NAT : ni STUN ni ICE. Asterisk réapprend l'adresse réelle
-           du client via le RTP symétrique (rtp_symmetric/force_rport/
+      <!-- Traversée de NAT : ni STUN ni ICE. Le média va directement au PBX
+           (Flexisip ne relaie pas le RTP) et Asterisk réapprend l'adresse
+           réelle du client via le RTP symétrique (rtp_symmetric/force_rport/
            rewrite_contact, actifs par défaut sur les extensions FreePBX) —
            ajouter du STUN côté client ne ferait qu'ajouter des candidats
            qu'Asterisk ignore. -->

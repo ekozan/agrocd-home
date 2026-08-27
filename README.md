@@ -16,7 +16,7 @@ Kubernetes Cluster
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
 ├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
-└── Téléphonie      → provisionnement des clients Linphone (PBX FreePBX hébergé hors cluster, sur ESXi)
+└── Téléphonie      → Flexisip (proxy SIP + push) + provisionnement Linphone (PBX FreePBX hors cluster, sur ESXi)
 ```
 
 ### Domaines exposés
@@ -34,6 +34,7 @@ Kubernetes Cluster
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
 | Provisionnement Linphone | `https://linphone.ffd.link` (config des softphones) |
+| Flexisip (proxy SIP + push) | `sip.ffd.link` — LoadBalancer MetalLB : SIP-TLS `5061`, SIP `5060` UDP/TCP |
 
 ---
 
@@ -67,6 +68,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
+- *(Optionnel, push Flexisip)* certificat APNs et compte de service Firebase (`kv/kubernetes/flexisip/apns`, `kv/kubernetes/flexisip/firebase`) — cf. `infra/flexisip/README.md`
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -119,6 +121,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Provisionnement Linphone (`linphone.ffd.link`) — app `./infra` ; Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
+| `13` | Flexisip — proxy SIP et push devant le FreePBX externe (`sip.ffd.link`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -177,7 +180,9 @@ agrocd-home/
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
 │   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │   ├── 12-linphone.yaml      # App ArgoCD → ./infra/linphone (linphone.ffd.link)
-│   └── linphone/             # Provisionnement distant des softphones Linphone (ConfigMap XML + nginx) + README téléphonie
+│   ├── linphone/             # Provisionnement distant des softphones Linphone (ConfigMap XML + nginx) + README téléphonie
+│   ├── 13-flexisip.yaml      # App ArgoCD → ./infra/flexisip (sip.ffd.link)
+│   └── flexisip/             # Proxy SIP Flexisip (push APNs/FCM) devant le FreePBX ESXi + modèle d'ExternalSecrets push
 │
 ├── dev/
 │   ├── coder.yaml
@@ -223,6 +228,7 @@ agrocd-home/
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
 | Provisionnement Linphone | `nginxinc/nginx-unprivileged` | 1.27-alpine | linphone |
+| Flexisip (proxy SIP + push) | `gitlab.linphone.org:4567/bc/public/flexisip` | 2.6.1 | flexisip |
 
 ---
 

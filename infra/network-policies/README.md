@@ -29,3 +29,4 @@ par namespace, puis rouvrent explicitement les seuls flux légitimes.
 | `coder` | Traefik → namespace ; intra-namespace (coder → PostgreSQL) |
 | `litellm` | intra-namespace ; `coder` → :4000 *(hypothèse, à valider)* |
 | `linphone` | Traefik → provisionnement Linphone (:8080) uniquement |
+| `flexisip` | SIP ← LAN `10.10.0.0/16` et `10.5.0.0/16` (5061 TLS, 5060 UDP/TCP) — postes Linphone et FreePBX (VM ESXi) |
