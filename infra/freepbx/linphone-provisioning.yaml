@@ -1,0 +1,266 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Provisionnement distant des clients Linphone.
+#
+# Linphone (desktop, Android, iOS) sait récupérer sa configuration au démarrage
+# depuis une URL HTTPS (« remote provisioning », format XML lpconfig). On y
+# publie tout ce qui est commun au parc — transport TLS, chiffrement média,
+# codecs, domaine SIP — pour que l'utilisateur n'ait plus qu'à saisir son
+# numéro d'extension et son mot de passe.
+#
+# ⚠️  AUCUN identifiant ici : ce fichier est servi publiquement (derrière
+# CrowdSec). Pour un provisionnement par utilisateur incluant le secret SIP
+# (section `auth_info_0`), voir infra/freepbx/README.md — ces fichiers-là
+# doivent venir d'un Secret alimenté par OpenBao, jamais de Git.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linphone-provisioning
+  namespace: freepbx
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  linphone-ffd.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <config xmlns="http://www.linphone.org/xsds/lpconfig.xsd"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://www.linphone.org/xsds/lpconfig.xsd lpconfig.xsd">
+
+      <!-- Réglages globaux du client -->
+      <section name="sip">
+        <!-- Compte utilisé par défaut pour les appels sortants -->
+        <entry name="default_proxy" overwrite="true">0</entry>
+        <!-- SRTP : le média est chiffré, les clés sont échangées dans le SDP,
+             lui-même protégé par le transport TLS. Non obligatoire pour rester
+             compatible avec un éventuel trunk opérateur en clair. -->
+        <entry name="media_encryption" overwrite="true">srtp</entry>
+        <entry name="media_encryption_mandatory" overwrite="true">0</entry>
+        <entry name="register_only_when_network_is_up" overwrite="true">1</entry>
+        <entry name="auto_answer_replacing_calls" overwrite="true">1</entry>
+        <entry name="sip_random_port" overwrite="true">1</entry>
+      </section>
+
+      <!-- Valeurs pré-remplies à la création d'un compte : l'assistant
+           Linphone ne demande plus que l'identifiant et le mot de passe.
+           Le point d'interrogation de reg_identity est remplacé par le
+           nom d'utilisateur saisi. -->
+      <section name="proxy_default_values">
+        <entry name="reg_proxy" overwrite="true">&lt;sip:sip.ffd.link:5061;transport=tls&gt;</entry>
+        <entry name="reg_identity" overwrite="true">sip:?@sip.ffd.link</entry>
+        <entry name="realm" overwrite="true">asterisk</entry>
+        <entry name="reg_expires" overwrite="true">600</entry>
+        <entry name="reg_sendregister" overwrite="true">1</entry>
+        <entry name="publish" overwrite="true">0</entry>
+        <!-- AVPF désactivé : chan_pjsip négocie du RTP/SAVP classique pour un
+             poste SIP standard (l'AVPF est réservé aux endpoints WebRTC). -->
+        <entry name="avpf" overwrite="true">0</entry>
+        <entry name="quality_reporting_enabled" overwrite="true">0</entry>
+      </section>
+
+      <!-- Traversée de NAT : ni STUN ni ICE. Asterisk publie l'adresse du
+           LoadBalancer (external_media_address) et réapprend l'adresse réelle
+           du client via le RTP symétrique — ajouter du STUN côté client ne
+           ferait qu'ajouter des candidats qu'Asterisk ignore. -->
+      <section name="nat_policy_default_values">
+        <entry name="protocols" overwrite="true"></entry>
+      </section>
+
+      <!-- Codecs audio, par ordre de préférence.
+           opus est proposé en premier mais reste inopérant tant que
+           codec_opus n'est pas installé côté Asterisk : G722 (HD) puis
+           PCMA/PCMU (compatibilité universelle) prennent alors le relais. -->
+      <section name="audio_codec_0">
+        <entry name="mime" overwrite="true">opus</entry>
+        <entry name="rate" overwrite="true">48000</entry>
+        <entry name="channels" overwrite="true">2</entry>
+        <entry name="enabled" overwrite="true">1</entry>
+      </section>
+      <section name="audio_codec_1">
+        <entry name="mime" overwrite="true">G722</entry>
+        <entry name="rate" overwrite="true">8000</entry>
+        <entry name="channels" overwrite="true">1</entry>
+        <entry name="enabled" overwrite="true">1</entry>
+      </section>
+      <section name="audio_codec_2">
+        <entry name="mime" overwrite="true">PCMA</entry>
+        <entry name="rate" overwrite="true">8000</entry>
+        <entry name="channels" overwrite="true">1</entry>
+        <entry name="enabled" overwrite="true">1</entry>
+      </section>
+      <section name="audio_codec_3">
+        <entry name="mime" overwrite="true">PCMU</entry>
+        <entry name="rate" overwrite="true">8000</entry>
+        <entry name="channels" overwrite="true">1</entry>
+        <entry name="enabled" overwrite="true">1</entry>
+      </section>
+
+      <!-- Visio désactivée par défaut : les extensions FreePBX sont créées en
+           audio seul, et la plage RTP publiée est dimensionnée en conséquence. -->
+      <section name="video">
+        <entry name="automatically_initiate" overwrite="true">0</entry>
+        <entry name="automatically_accept" overwrite="true">0</entry>
+      </section>
+
+      <!-- Le client re-télécharge ce fichier à chaque démarrage : une
+           modification de ce ConfigMap se propage à tout le parc. -->
+      <section name="misc">
+        <entry name="config-uri" overwrite="true">https://pbx.ffd.link/provisioning/linphone-ffd.xml</entry>
+      </section>
+    </config>
+  index.html: |
+    <!doctype html>
+    <html lang="fr">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Configuration Linphone — FFD PBX</title>
+        <style>
+          body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+          code { background: #eee; padding: .1rem .3rem; border-radius: .2rem; }
+          .cta { display: inline-block; margin: 1rem 0; padding: .6rem 1rem; background: #1f6feb; color: #fff; text-decoration: none; border-radius: .3rem; }
+        </style>
+      </head>
+      <body>
+        <h1>Configurer Linphone</h1>
+        <p>Depuis le téléphone sur lequel Linphone est installé :</p>
+        <p><a class="cta" href="linphone-config://https://pbx.ffd.link/provisioning/linphone-ffd.xml">Appliquer la configuration FFD</a></p>
+        <p>Si le lien n'ouvre pas Linphone, coller cette adresse dans
+          <em>Paramètres → Avancé → URL de configuration distante</em> :</p>
+        <p><code>https://pbx.ffd.link/provisioning/linphone-ffd.xml</code></p>
+        <p>Linphone redémarre, puis demande le <strong>numéro d'extension</strong>
+          et le <strong>mot de passe SIP</strong> fournis par l'administrateur.
+          Le domaine (<code>sip.ffd.link</code>), le transport TLS et les codecs
+          sont déjà renseignés.</p>
+      </body>
+    </html>
+---
+# Deployment — serveur statique du fichier de provisionnement.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linphone-provisioning
+  namespace: freepbx
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: linphone-provisioning
+  template:
+    metadata:
+      labels:
+        app: linphone-provisioning
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101              # utilisateur nginx de l'image unprivileged
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            # Le ConfigMap est monté sous /provisioning pour que l'URL publique
+            # (https://pbx.ffd.link/provisioning/linphone-ffd.xml) corresponde
+            # au chemin sur disque : Traefik transmet le chemin tel quel.
+            - name: provisioning
+              mountPath: /usr/share/nginx/html/provisioning
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /provisioning/linphone-ffd.xml
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /provisioning/linphone-ffd.xml
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: provisioning
+          configMap:
+            name: linphone-provisioning
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: linphone-provisioning
+  namespace: freepbx
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  type: ClusterIP
+  selector:
+    app: linphone-provisioning
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# Ingress — pbx.ffd.link/provisioning
+#
+# Contrairement à l'interface d'administration (Ingress `freepbx`, réservé au
+# LAN), ce chemin reste joignable depuis l'extérieur : un téléphone en 4G doit
+# pouvoir récupérer sa configuration. Il ne contient aucun identifiant, et
+# CrowdSec s'applique. Traefik donne la priorité à la règle la plus spécifique,
+# donc /provisioning l'emporte sur le / de l'Ingress d'administration.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linphone-provisioning
+  namespace: freepbx
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: pbx.ffd.link
+      http:
+        paths:
+          - path: /provisioning
+            pathType: Prefix
+            backend:
+              service:
+                name: linphone-provisioning
+                port:
+                  number: 8080
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - pbx.ffd.link

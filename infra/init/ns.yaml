@@ -38,3 +38,20 @@ metadata:
   labels:
     pod-security.kubernetes.io/warn: baseline
     pod-security.kubernetes.io/audit: baseline
+---
+# Namespace FreePBX / izPBX (téléphonie SIP, clients Linphone). Créé tôt
+# (wave -1) pour que l'app network-policies (wave 8) et la réplication du
+# certificat wildcard `ffd-link-tls` le trouvent avant le déploiement de
+# l'app freepbx (wave 12).
+#
+# PSA baseline (warn/audit) : l'image izPBX lance plusieurs services (apache,
+# asterisk, cron, msmtp) sous supervision et démarre en root — `restricted`
+# refuserait le pod. Aucune capability additionnelle n'est demandée
+# (fail2ban est désactivé, cf. infra/freepbx/freepbx.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: freepbx
+  labels:
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline

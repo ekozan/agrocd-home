@@ -15,7 +15,8 @@ Kubernetes Cluster
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
-└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+└── Téléphonie      → FreePBX/Asterisk (izPBX) + provisionnement des clients Linphone
 ```
 
 ### Domaines exposés
@@ -32,6 +33,9 @@ Kubernetes Cluster
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
+| FreePBX (administration) | `https://pbx.ffd.link` (LAN uniquement) |
+| Provisionnement Linphone | `https://pbx.ffd.link/provisioning/linphone-ffd.xml` |
+| SIP / RTP (FreePBX) | `sip.ffd.link` — LoadBalancer MetalLB : SIP-TLS `5061`, SIP `5060` UDP/TCP, RTP `10000-10019/UDP` |
 
 ---
 
@@ -65,6 +69,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
+- Mots de passe MariaDB de FreePBX (`kv/kubernetes/freepbx/db` : `password`, `root_password`)
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications
@@ -116,7 +121,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `9` | CrowdSec UI |
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
-| `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
+| `12` | FreePBX / izPBX (`pbx.ffd.link`, SIP sur `sip.ffd.link`) — app `./infra` ; Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -173,7 +178,9 @@ agrocd-home/
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── 12-freepbx.yaml       # App ArgoCD → ./infra/freepbx (pbx.ffd.link + SIP)
+│   └── freepbx/              # FreePBX/izPBX + MariaDB + LoadBalancer SIP/RTP + provisionnement Linphone + README téléphonie
 │
 ├── dev/
 │   ├── coder.yaml
@@ -218,6 +225,9 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
+| FreePBX / izPBX (Asterisk 20 + FreePBX 16) | `izdock/izpbx-asterisk` | 20.16.21 | freepbx |
+| MariaDB (FreePBX) | `mariadb` | 10.11.11 | freepbx |
+| Provisionnement Linphone | `nginxinc/nginx-unprivileged` | 1.27-alpine | freepbx |
 
 ---
 
@@ -320,6 +330,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
 | `cloud.ffd.link` (OxiCloud) | `infra/oxicloud/oxicloud.yaml` |
 | `office.ffd.link` (Euro-Office) | `infra/euro-office/euro-office.yaml` |
+| `pbx.ffd.link` (FreePBX + provisionnement Linphone) | `infra/freepbx/freepbx.yaml`, `infra/freepbx/linphone-provisioning.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 

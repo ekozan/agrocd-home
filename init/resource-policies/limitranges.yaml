@@ -219,3 +219,17 @@ spec:
         memory: 256Mi
       default:
         memory: 4Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: freepbx
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 256Mi
+      default:
+        memory: 4Gi
