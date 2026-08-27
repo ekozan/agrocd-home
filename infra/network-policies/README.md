@@ -28,4 +28,4 @@ par namespace, puis rouvrent explicitement les seuls flux légitimes.
 | `gitea` | Traefik → namespace ; intra-namespace (gitea/runner → PostgreSQL/Valkey) |
 | `coder` | Traefik → namespace ; intra-namespace (coder → PostgreSQL) |
 | `litellm` | intra-namespace ; `coder` → :4000 *(hypothèse, à valider)* |
-| `freepbx` | Traefik → admin FreePBX (:80) et provisionnement Linphone (:8080) ; SIP/RTP ← LAN `10.10.0.0/16` et `10.5.0.0/16` (5060 UDP/TCP, 5061 TLS, 10000-10019 UDP) ; intra-namespace (izPBX → MariaDB) |
+| `linphone` | Traefik → provisionnement Linphone (:8080) uniquement |
