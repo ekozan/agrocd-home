@@ -173,18 +173,59 @@ vers le PBX. Si ton PBX écoute en TLS : `<sips:pbx.ffd.link:5061>`.
 
 ```bash
 kubectl -n flexisip logs -f deploy/flexisip
+kubectl -n flexisip logs deploy/flexisip -c render-config   # push délégué actif ou non
 kubectl -n flexisip get svc flexisip-sip
-
-# Postes enregistrés (le registre est en mémoire, il repart à zéro au redémarrage)
-kubectl -n flexisip exec deploy/flexisip -- flexisip_cli.py REGISTRAR_DUMP
 ```
+
+### Les postes sont-ils enregistrés, avec leurs paramètres push ?
+
+Le registre est en mémoire (il repart à zéro à chaque redémarrage) :
+
+```bash
+kubectl -n flexisip exec deploy/flexisip -- flexisip_cli.py REGISTRAR_DUMP
+kubectl -n flexisip exec deploy/flexisip -- flexisip_cli.py REGISTRAR_GET sip:1001@pbx.ffd.link
+```
+
+Le Contact d'un poste mobile doit porter les paramètres de la RFC 8599 —
+c'est la seule information dont dispose Flexisip pour demander un push :
+
+| Paramètre | Contenu |
+|-----------|---------|
+| `pn-provider` | `apns` (iOS production), `apns.dev` (iOS développement), `fcm` (Android) |
+| `pn-param` | identifiant de l'application : `<ProjectID>` pour FCM, `<TeamID>.<BundleID>` pour APNs (suffixé `.voip` pour PushKit) |
+| `pn-prid` | jeton de l'instance de l'application sur cet appareil |
+
+S'ils sont absents, le problème est côté client (`push_notification_allowed`,
+ou build de l'application sans service push) — pas côté Flexisip.
+
+### Émettre un push de test
+
+L'image embarque l'outil `flexisip_pusher` :
+
+```bash
+# Android (certificats en propre)
+kubectl -n flexisip exec deploy/flexisip -- flexisip_pusher \
+  --key /etc/flexisip/firebase/firebase.json --pn-provider fcm \
+  --pn-param '<ProjectID>' --pn-prid '<jeton>'
+
+# iOS PushKit (certificats en propre)
+kubectl -n flexisip exec deploy/flexisip -- flexisip_pusher \
+  --prefix /etc/flexisip --pn-provider apns \
+  --pn-param '<TeamID>.<BundleID>.voip' --pn-prid '<jeton>' \
+  --apple-push-type PushKit
+```
+
+⚠️ Cet outil parle **directement** à Apple/Google : il ne teste donc que la
+variante « certificats en propre ». En mode délégué (FlexiAPI), la
+vérification passe par les logs de Flexisip et ses compteurs `count-pn-sent` /
+`count-pn-failed`.
 
 | Symptôme | Piste |
 |----------|-------|
 | Aucun enregistrement | DNS `sip.ffd.link`, NetworkPolicy `allow-sip-from-lan`, `routes.conf` (le REGISTER doit atteindre le PBX) |
 | REGISTER rejeté 401/403 | c'est le PBX qui répond : identifiants de l'extension |
 | Erreur TLS côté client | le nom joint doit être `sip.ffd.link` (certificat wildcard) |
-| Appel entrant qui ne sonne que app ouverte | push inactif : Secret `flexisip-flexiapi` absent (voir le log de l'initContainer), clé d'API invalide, ou REGISTER sans paramètres `pn-*` (`push_notification_allowed`) |
+| Appel entrant qui ne sonne que app ouverte | push inactif : Secret `flexisip-flexiapi` absent (voir le log de l'initContainer), clé d'API invalide, ou Contact sans paramètres `pn-*` |
 | Son unidirectionnel | réglages NAT/RTP du PBX (External Address, plage RTP, redirections) — le média ne passe pas par le cluster |
 | Boucle de routage | filtre de `routes.conf` trop large, ou `aliases` incomplet dans `flexisip.conf` |
 
