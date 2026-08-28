@@ -58,6 +58,30 @@ et fournir les Secrets `flexisip-apns` / `flexisip-firebase`
 Firebase + APK distribué hors store) ; côté iOS il faut un compte Apple
 Developer et un certificat PushKit.
 
+### ⚠️ Les exemples de configuration trouvés en ligne sont périmés
+
+On voit encore beaucoup passer ceci :
+
+```ini
+[module::PushNotification]
+enabled=true
+apple=true
+firebase=true
+firebase-projects-api-keys=<your_project_api_key>   # ← à ne pas reprendre
+```
+
+Deux problèmes :
+
+- `firebase-projects-api-keys` attend une **clé serveur FCM Legacy**. Google a
+  coupé l'API FCM legacy en juin 2024 ; le paramètre est marqué déprécié dans
+  Flexisip depuis la 2.6.0 (« isn't supported anymore […] Use FirebaseV1
+  instead ») et sa propre description dit « Not used anymore ». L'équivalent
+  actuel est `firebase-service-accounts=<numéro de projet>:<fichier JSON>`
+  (API FCM v1, compte de service).
+- C'est le mode d'envoi **direct**, qui suppose de détenir les identifiants de
+  l'application. Il ne s'applique donc qu'à la variante « certificats en
+  propre » ci-dessous, pas à l'application Linphone du store.
+
 Dans les deux cas, le réveil ne fonctionne que si le client annonce ses
 paramètres `pn-provider` / `pn-prid` / `pn-param` dans le Contact de son
 REGISTER — c'est ce que déclenche `push_notification_allowed=1`, déjà posé par
