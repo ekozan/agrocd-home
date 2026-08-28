@@ -21,10 +21,14 @@
 #   • Média (RTP) : direct entre le poste et FreePBX — MediaRelay désactivé,
 #     donc aucune plage RTP à publier côté cluster.
 #
-# ⚠️  Le push n'est PAS fonctionnel avec l'application Linphone du store : les
-# jetons push appartiennent au projet Firebase / au certificat APNs de
-# Belledonne. Il faut une application recompilée (SDK Linphone) avec ton propre
-# projet Firebase et ton propre certificat APNs — cf. README.md § Push.
+# Envoi du push : DÉLÉGUÉ au serveur de Belledonne (FlexiAPI). Un jeton push
+# n'est adressable que par le détenteur du certificat APNs / du projet Firebase
+# de l'application ; avec le Linphone du store, c'est Belledonne. Plutôt que de
+# parler directement à Apple et Google, Flexisip leur envoie donc une requête
+# HTTP authentifiée par une clé d'API, et leur serveur émet le push.
+# → Nécessite une clé d'API obtenue auprès de Belledonne (cf. README.md § Push).
+# La variante « certificats en propre » (application recompilée) reste possible
+# et documentée ci-dessous.
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
@@ -56,6 +60,14 @@ data:
     tls-certificates-private-key=/etc/flexisip/tls/tls.key
     # Noms désignant cette instance : évite les boucles de routage.
     aliases=sip.ffd.link flexisip.flexisip.svc.cluster.local
+
+    [global::flexiapi]
+    # Serveur de push de Belledonne. Flexisip ajoute lui-même le chemin de
+    # l'endpoint de notification à cette URL de base.
+    url=https://subscribe.linphone.org/api/
+    # Substituée au démarrage par l'initContainer depuis le Secret
+    # `flexisip-flexiapi` (clé `api_key`). Ne jamais écrire la clé ici.
+    api-key=@FLEXIAPI_API_KEY@
 
     [module::Registrar]
     enabled=true
@@ -91,16 +103,22 @@ data:
     enabled=true
     # Envoi immédiat (les mobiles n'ont pas de connexion permanente).
     timeout=0
-    # iOS — un fichier PEM par application : /etc/flexisip/apn/<appid>.prod.pem
-    # (+ .voip.prod.pem pour PushKit). Répertoire vide tant que le Secret
-    # `flexisip-apns` n'existe pas : le push iOS est alors simplement inactif.
-    apple=true
-    apple-certificate-dir=/etc/flexisip/apn
-    # Android — compte de service Firebase (API FCM v1) :
-    #   firebase-service-accounts=<numéro de projet>:/etc/flexisip/firebase/<fichier>.json
-    # À décommenter une fois le Secret `flexisip-firebase` en place.
-    firebase=true
-    #firebase-service-accounts=123456789012:/etc/flexisip/firebase/firebase.json
+    # ⭐ Délégation de l'envoi au serveur de Belledonne : Flexisip poste la
+    # demande de push sur l'API (section [global::flexiapi]) et c'est leur
+    # infrastructure qui parle à APNs/FCM avec les certificats de l'app
+    # Linphone. C'est la seule façon de réveiller l'application du store.
+    #
+    # L'initContainer `render-config` bascule automatiquement ce paramètre à
+    # `false` tant que le Secret `flexisip-flexiapi` (clé d'API) est absent :
+    # le pod démarre alors sans push au lieu de tomber en erreur.
+    external-push-flexiapi=true
+    # Émetteurs directs désactivés : ils ne serviraient qu'avec des certificats
+    # en propre (application recompilée). Pour ce cas, remettre `apple=true` /
+    # `firebase=true`, passer external-push-flexiapi à false et renseigner :
+    #   apple-certificate-dir=/etc/flexisip/apn
+    #   firebase-service-accounts=<numéro de projet>:/etc/flexisip/firebase/firebase.json
+    apple=false
+    firebase=false
 
     [module::MediaRelay]
     # Le média va directement du poste au PBX : pas de relais RTP dans le
@@ -115,7 +133,7 @@ data:
     enabled=true
     # Tout ce que le Router n'a pas su router (donc tout ce qui ne vise pas un
     # poste enregistré) part vers le PBX, d'après /config/routes.conf.
-    routes-config-path=/config/routes.conf
+    routes-config-path=/run/flexisip/routes.conf
     default-transport=udp
   routes.conf: |
     # Route par défaut vers le FreePBX (VM ESXi) — format :
@@ -147,6 +165,49 @@ spec:
       labels:
         app: flexisip
     spec:
+      initContainers:
+        # Rend la configuration : injecte la clé d'API FlexiAPI depuis le Secret
+        # et, si celui-ci est absent, désactive le pusher externe pour que
+        # Flexisip démarre quand même (il refuse de se lancer avec
+        # `external-push-flexiapi=true` et une clé vide).
+        - name: render-config
+          image: busybox:1.37
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              SRC=/config-tpl/flexisip.conf
+              DST=/run/flexisip/flexisip.conf
+              if [ -n "${FLEXIAPI_API_KEY:-}" ]; then
+                sed "s|@FLEXIAPI_API_KEY@|${FLEXIAPI_API_KEY}|" "$SRC" > "$DST"
+                echo "Pusher externe (FlexiAPI) activé."
+              else
+                sed -e "s|^external-push-flexiapi=true|external-push-flexiapi=false|" \
+                    -e "s|@FLEXIAPI_API_KEY@||" "$SRC" > "$DST"
+                echo "Secret flexisip-flexiapi absent : démarrage SANS push."
+              fi
+              cp /config-tpl/routes.conf /run/flexisip/routes.conf
+          env:
+            - name: FLEXIAPI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: flexisip-flexiapi
+                  key: api_key
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /config-tpl
+              readOnly: true
+            - name: config-rendered
+              mountPath: /run/flexisip
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: flexisip
           # Image officielle Belledonne. Le registre GitLab n'étant pas
@@ -160,7 +221,7 @@ spec:
             - --server
             - proxy
             - --config
-            - /config/flexisip.conf
+            - /run/flexisip/flexisip.conf
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -176,8 +237,9 @@ spec:
               name: sip-tls
               protocol: TCP
           volumeMounts:
-            - name: config
-              mountPath: /config
+            # Configuration rendue par l'initContainer (clé d'API injectée).
+            - name: config-rendered
+              mountPath: /run/flexisip
               readOnly: true
             - name: tls
               mountPath: /etc/flexisip/tls
@@ -211,6 +273,8 @@ spec:
         - name: config
           configMap:
             name: flexisip-config
+        - name: config-rendered
+          emptyDir: {}
         - name: tls
           secret:
             secretName: ffd-link-tls

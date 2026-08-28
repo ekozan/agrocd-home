@@ -68,7 +68,7 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
-- *(Optionnel, push Flexisip)* certificat APNs et compte de service Firebase (`kv/kubernetes/flexisip/apns`, `kv/kubernetes/flexisip/firebase`) — cf. `infra/flexisip/README.md`
+- *(Optionnel, push Flexisip)* clé d'API du serveur de push Belledonne (`kv/kubernetes/flexisip/flexiapi`), ou certificats en propre si l'app est recompilée (`kv/kubernetes/flexisip/apns`, `.../firebase`) — cf. `infra/flexisip/README.md`
 - Certificats TLS si non gérés par Cert-Manager
 
 ### 3. Appliquer les ArgoCD Applications

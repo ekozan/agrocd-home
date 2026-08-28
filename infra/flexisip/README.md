@@ -19,24 +19,49 @@ mémoriser où joindre chaque poste.
 
 ---
 
-## ⚠️ Le push ne marche pas avec le Linphone du store
+## Comment le push fonctionne ici
 
-Un jeton push appartient à l'application qui l'a obtenu :
+Un jeton push n'est adressable que par le détenteur des identifiants de
+l'application : le certificat APNs pour iOS, le projet Firebase pour Android.
+Avec l'application Linphone du store, ces identifiants sont ceux de Belledonne
+— impossible de les détenir.
 
-- **Android** : le jeton est émis pour le projet **Firebase** de l'application.
-  L'application Linphone du Play Store est enregistrée dans le projet de
-  Belledonne — seul leur serveur peut lui envoyer un push.
-- **iOS** : le jeton est lié au **bundle id** et au certificat APNs
-  correspondant, là encore ceux de Belledonne.
+D'où le mode retenu : **Flexisip délègue l'envoi au serveur de push de
+Belledonne**. Il ne parle pas directement à Apple et Google, il poste une
+requête HTTP authentifiée sur leur API (FlexiAPI) et leur infrastructure émet
+le push avec les bons certificats.
 
-Pour du push auto-hébergé, il faut donc **recompiler l'application** avec le
-[SDK Linphone](https://gitlab.linphone.org/BC/public/linphone-sdk), ton propre
-bundle id / `google-services.json`, puis fournir ici le certificat APNs et le
-compte de service Firebase correspondants.
+```ini
+[global::flexiapi]
+url=https://subscribe.linphone.org/api/
+api-key=<injectée depuis le Secret flexisip-flexiapi>
 
-Sans cela, ce déploiement reste utile — TLS de bout en bout, enregistrement
-multi-appareils, `fork-late`, un seul point d'entrée SIP public — mais un appel
-entrant ne réveillera pas une application mise en veille par le système.
+[module::PushNotification]
+external-push-flexiapi=true
+apple=false
+firebase=false
+```
+
+Il faut donc **une clé d'API obtenue auprès de Belledonne** : le push pour des
+comptes SIP tiers est une prestation de leur côté (les comptes
+`sip.linphone.org` en bénéficient nativement, pas les autres). Tant que le
+Secret `flexisip-flexiapi` n'existe pas, l'initContainer bascule
+`external-push-flexiapi=false` et Flexisip démarre sans push — aucun
+CrashLoop.
+
+**Variante « certificats en propre »** : si l'application est recompilée à
+partir du [SDK Linphone](https://gitlab.linphone.org/BC/public/linphone-sdk)
+avec ton propre bundle id et ton propre projet Firebase, Flexisip peut pousser
+en direct — remettre `apple=true` / `firebase=true`, `external-push-flexiapi=false`
+et fournir les Secrets `flexisip-apns` / `flexisip-firebase`
+(cf. `push-credentials.yaml.example`). Côté Android c'est gratuit (projet
+Firebase + APK distribué hors store) ; côté iOS il faut un compte Apple
+Developer et un certificat PushKit.
+
+Dans les deux cas, le réveil ne fonctionne que si le client annonce ses
+paramètres `pn-provider` / `pn-prid` / `pn-param` dans le Contact de son
+REGISTER — c'est ce que déclenche `push_notification_allowed=1`, déjà posé par
+le fichier de provisionnement (`infra/linphone/provisioning.yaml`).
 
 ---
 
@@ -111,34 +136,36 @@ vers le PBX. Si ton PBX écoute en TLS : `<sips:pbx.ffd.link:5061>`.
 
 ## 3. Activer le push
 
-1. Obtenir les identifiants de **ton** application (cf. avertissement ci-dessus) :
-   - iOS : certificat APNs au format PEM (certificat + clé privée concaténés),
-     nommé `<appid>.prod.pem`, plus `<appid>.voip.prod.pem` pour PushKit
-     (indispensable aux appels entrants) ;
-   - Android : le fichier JSON du compte de service Firebase et le numéro du
-     projet.
-2. Les déposer dans OpenBao :
+### Mode par défaut — serveur de Belledonne
+
+1. Obtenir une clé d'API auprès de Belledonne (le push vers l'app Linphone pour
+   un serveur SIP tiers passe par leur service) et confirmer l'URL de base de
+   l'API, renseignée dans `flexisip.conf` → `[global::flexiapi] url`.
+2. Déposer la clé dans OpenBao :
+   ```
+   kv/kubernetes/flexisip/flexiapi { api_key }
+   ```
+3. Renommer `push-credentials.yaml.example` en `push-credentials.yaml` (le
+   `.example` est ignoré par ArgoCD) en ne gardant que l'ExternalSecret
+   `flexisip-flexiapi`.
+4. `kubectl -n flexisip rollout restart deploy/flexisip` — le log de
+   l'initContainer doit afficher « Pusher externe (FlexiAPI) activé. ».
+
+### Variante — certificats en propre (application recompilée)
+
+1. Déposer dans OpenBao le certificat APNs (PEM : certificat + clé privée,
+   plus le `.voip.prod.pem` PushKit, indispensable aux appels entrants) et/ou
+   le compte de service Firebase :
    ```
    kv/kubernetes/flexisip/apns      { prod_pem, voip_prod_pem }
    kv/kubernetes/flexisip/firebase  { service_account }
    ```
-3. Renommer `push-credentials.yaml.example` en `push-credentials.yaml` (le
-   fichier `.example` est ignoré par ArgoCD) et adapter les noms de fichiers à
-   ton app id.
-4. Décommenter dans `flexisip.conf` :
-   ```ini
-   firebase-service-accounts=<numéro de projet>:/etc/flexisip/firebase/firebase.json
-   ```
-5. Redémarrer : `kubectl -n flexisip rollout restart deploy/flexisip`.
-
-Les volumes sont déclarés `optional: true` : tant que les Secrets n'existent
-pas, Flexisip démarre normalement, sans push.
-
-Côté client, le fichier de provisionnement Linphone
-(`infra/linphone/provisioning.yaml`) pose déjà `push_notification_allowed=1` :
-c'est ce qui fait ajouter les paramètres `pn-provider` / `pn-prid` / `pn-param`
-au Contact du REGISTER, seule source d'information de Flexisip pour joindre
-APNs ou FCM.
+2. Garder les ExternalSecrets `flexisip-apns` / `flexisip-firebase` du modèle.
+3. Dans `flexisip.conf` : `external-push-flexiapi=false`, `apple=true`,
+   `firebase=true`, `apple-certificate-dir=/etc/flexisip/apn`,
+   `firebase-service-accounts=<numéro de projet>:/etc/flexisip/firebase/firebase.json`.
+   Les noms de fichiers du Secret APNs doivent porter l'app id
+   (`<appid>.prod.pem`).
 
 ---
 
@@ -157,7 +184,7 @@ kubectl -n flexisip exec deploy/flexisip -- flexisip_cli.py REGISTRAR_DUMP
 | Aucun enregistrement | DNS `sip.ffd.link`, NetworkPolicy `allow-sip-from-lan`, `routes.conf` (le REGISTER doit atteindre le PBX) |
 | REGISTER rejeté 401/403 | c'est le PBX qui répond : identifiants de l'extension |
 | Erreur TLS côté client | le nom joint doit être `sip.ffd.link` (certificat wildcard) |
-| Appel entrant qui ne sonne que app ouverte | comportement attendu sans identifiants push valides (cf. avertissement) |
+| Appel entrant qui ne sonne que app ouverte | push inactif : Secret `flexisip-flexiapi` absent (voir le log de l'initContainer), clé d'API invalide, ou REGISTER sans paramètres `pn-*` (`push_notification_allowed`) |
 | Son unidirectionnel | réglages NAT/RTP du PBX (External Address, plage RTP, redirections) — le média ne passe pas par le cluster |
 | Boucle de routage | filtre de `routes.conf` trop large, ou `aliases` incomplet dans `flexisip.conf` |
 
