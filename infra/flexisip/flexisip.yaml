@@ -62,9 +62,11 @@ data:
     aliases=sip.ffd.link flexisip.flexisip.svc.cluster.local
 
     [global::flexiapi]
-    # Serveur de push de Belledonne. Flexisip ajoute lui-même le chemin de
-    # l'endpoint de notification à cette URL de base.
-    url=https://subscribe.linphone.org/api/
+    # Serveur de push de Belledonne. URL *racine* : Flexisip y CONCATÈNE le
+    # chemin `/api/push_notification` (constante kFlexiApiPushNotificationPath,
+    # ajoutée par HttpUrl::appendPath, qui préserve le chemin existant). Mettre
+    # « …/api/ » ici produirait donc /api/api/push_notification.
+    url=https://subscribe.linphone.org
     # Substituée au démarrage par l'initContainer depuis le Secret
     # `flexisip-flexiapi` (clé `api_key`). Ne jamais écrire la clé ici.
     api-key=@FLEXIAPI_API_KEY@

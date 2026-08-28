@@ -33,7 +33,7 @@ le push avec les bons certificats.
 
 ```ini
 [global::flexiapi]
-url=https://subscribe.linphone.org/api/
+url=https://subscribe.linphone.org          # racine : Flexisip ajoute /api/push_notification
 api-key=<injectée depuis le Secret flexisip-flexiapi>
 
 [module::PushNotification]
@@ -165,6 +165,12 @@ vers le PBX. Si ton PBX écoute en TLS : `<sips:pbx.ffd.link:5061>`.
 1. Obtenir une clé d'API auprès de Belledonne (le push vers l'app Linphone pour
    un serveur SIP tiers passe par leur service) et confirmer l'URL de base de
    l'API, renseignée dans `flexisip.conf` → `[global::flexiapi] url`.
+
+   L'URL attendue est la **racine** du serveur FlexiAPI : Flexisip y ajoute
+   lui-même `/api/push_notification` (`kFlexiApiPushNotificationPath` dans
+   `src/pushnotification/flexiapi/flexiapi-request.hh`, concaténé par
+   `HttpUrl::appendPath`). Une URL se terminant par `/api/` donnerait
+   `/api/api/push_notification` et des erreurs 404 au moment d'un appel.
 2. Déposer la clé dans OpenBao :
    ```
    kv/kubernetes/flexisip/flexiapi { api_key }
