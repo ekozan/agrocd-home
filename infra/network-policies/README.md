@@ -28,3 +28,4 @@ par namespace, puis rouvrent explicitement les seuls flux légitimes.
 | `gitea` | Traefik → namespace ; intra-namespace (gitea/runner → PostgreSQL/Valkey) |
 | `coder` | Traefik → namespace ; intra-namespace (coder → PostgreSQL) |
 | `litellm` | intra-namespace ; `coder` → :4000 *(hypothèse, à valider)* |
+| `komga` | Traefik → komga :25600 ; intra-namespace |

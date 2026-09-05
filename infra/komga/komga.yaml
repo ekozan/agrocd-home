@@ -1,0 +1,173 @@
+---
+# Namespace `komga` : créé en amont par infra/init/ns.yaml (wave -1).
+#
+# Komga — serveur de médias pour BD / mangas / magazines / eBooks
+# (https://komga.org). Application autonome : base embarquée SQLite dans
+# /config, aucune dépendance à pg-main ni à un secret externe. Les livres
+# sont lus depuis un partage TrueNAS NFS monté en /data ; Komga scanne ce
+# répertoire (il n'expose pas d'upload).
+#
+# Priorité : `homelab-low` (la plus basse du cluster — cf.
+# init/resource-policies/priorityclasses.yaml). Sous pression mémoire ou
+# disque, Komga est donc évincé AVANT tout autre applicatif, et son
+# ordonnancement ne préempte jamais un pod déjà placé (`preemptionPolicy:
+# Never` porté par la classe). C'est un service de confort : sa perte est
+# sans conséquence sur l'infra ou les services critiques.
+---
+# PersistentVolumeClaim — base SQLite, index Lucene, miniatures (Longhorn).
+# Doit être local/rapide : la base embarquée supporte mal NFS.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: komga-config
+  namespace: komga
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PersistentVolumeClaim — bibliothèque de livres (TrueNAS NFS, RWX).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: komga-library
+  namespace: komga
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: freenas-nfs-csi
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Deployment — Komga (JVM, un seul réplica : PVC config en RWO)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: komga
+  namespace: komga
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  # Le PVC de config est RWO : l'ancien pod doit libérer le volume avant que
+  # le nouveau démarre (RollingUpdate resterait bloqué en Pending).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: komga
+  template:
+    metadata:
+      labels:
+        app: komga
+    spec:
+      # Priorité la plus faible du cluster : premier évincé sous pression,
+      # ne préempte jamais (cf. init/resource-policies/priorityclasses.yaml).
+      priorityClassName: homelab-low
+      containers:
+        - name: komga
+          image: gotson/komga:1.26.3
+          ports:
+            - containerPort: 25600
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "25600"
+            - name: TZ
+              value: "Europe/Paris"
+            # Plafonne le tas JVM sous la limite mémoire du conteneur : sans
+            # cela le heap max par défaut (¼ de la RAM du nœud) peut dépasser
+            # la limite → OOMKill au lieu d'un GC.
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Xmx1g"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: library
+              mountPath: /data
+          # Komga n'expose pas d'endpoint de santé HTTP non authentifié
+          # (les endpoints actuator sont désactivés) → sondes TCP.
+          startupProbe:
+            tcpSocket:
+              port: 25600
+            # Démarrage JVM + migrations de la base : jusqu'à 5 min.
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: 25600
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: 25600
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              # Tas JVM (1 Go) + métaspace/threads/off-heap.
+              memory: 1536Mi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: komga-config
+        - name: library
+          persistentVolumeClaim:
+            claimName: komga-library
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: komga
+  namespace: komga
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: komga
+  ports:
+    - name: http
+      port: 25600
+      targetPort: 25600
+---
+# Ingress — komga.ffd.link (protégé CrowdSec)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: komga
+  namespace: komga
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # Middleware standard (corps entier inspecté) : Komga n'a pas d'upload,
+    # la bibliothèque est alimentée par le partage NFS.
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: komga.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: komga
+                port:
+                  number: 25600
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - komga.ffd.link

@@ -191,6 +191,22 @@ spec:
       default:
         memory: 1Gi
 ---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-resources
+  namespace: komga
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        # JVM : le pod Komga fixe déjà ses propres resources (limite 1536Mi),
+        # ce défaut ne concerne que d'éventuels conteneurs annexes.
+        memory: 1Gi
+---
 # ── Profil « lourd » ─────────────────────────────────────────────────────
 apiVersion: v1
 kind: LimitRange

@@ -26,7 +26,7 @@ Trois profils selon le namespace :
 | Profil | Namespaces | Request | Limite mémoire |
 |--------|-----------|---------|----------------|
 | Infra légère | traefik, cert-manager, external-secrets, cnpg-system, democratic-csi, crowdsec | 25m / 64Mi | 512Mi |
-| Applicatif | zitadel, gitea, litellm, matrix, oxicloud (coder : limite 2Gi) | 50m / 128Mi | 1–2Gi |
+| Applicatif | zitadel, gitea, litellm, matrix, oxicloud, komga (coder : limite 2Gi) | 50m / 128Mi | 1–2Gi |
 | Lourd | database (pg-main), euro-office | 100m / 256Mi | 4Gi |
 
 `argocd` et `kube-system` sont exclus volontairement (composants gérés hors
@@ -48,11 +48,13 @@ Trois classes sont fournies :
 |--------|--------|-------|
 | `homelab-critical` | 1000000 | Ingress, DB, secrets, CSI — évincé en dernier |
 | `homelab-standard` | 1000 | Défaut global (appliqué automatiquement) |
-| `homelab-low` | -1000 | CI (act-runner), jobs batch — évincé en premier, ne préempte jamais |
+| `homelab-low` | -1000 | CI (act-runner), jobs batch, Komga (`infra/komga/`) — évincé en premier, ne préempte jamais |
 
 Assigner `homelab-critical` / `homelab-low` se fait progressivement, chart
 par chart, via `priorityClassName` dans les values Helm (ex. act-runner →
-`homelab-low`, traefik / pg-main → `homelab-critical`).
+`homelab-low`, traefik / pg-main → `homelab-critical`). Komga (médiathèque,
+`infra/komga/komga.yaml`) porte déjà `homelab-low` : service de confort,
+sacrifiable en premier sous pression ressources.
 
 ## Limites connues
 

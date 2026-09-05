@@ -15,7 +15,8 @@ Kubernetes Cluster
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
-└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+└── Médiathèque     → Komga (BD / mangas / eBooks, priorité la plus basse)
 ```
 
 ### Domaines exposés
@@ -32,6 +33,7 @@ Kubernetes Cluster
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
+| Komga (BD / mangas / eBooks) | `https://komga.ffd.link` |
 
 ---
 
@@ -117,6 +119,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
+| `13` | Komga (`komga.ffd.link`) — priorité `homelab-low` |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -173,7 +176,9 @@ agrocd-home/
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── 13-komga.yaml         # App ArgoCD → ./infra/komga (komga.ffd.link)
+│   └── komga/                # Komga (PVC config Longhorn + PVC NFS bibliothèque, Deployment, Service, Ingress)
 │
 ├── dev/
 │   ├── coder.yaml
@@ -218,6 +223,7 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
+| Komga | `gotson/komga` | 1.26.3 | komga |
 
 ---
 
@@ -320,6 +326,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
 | `cloud.ffd.link` (OxiCloud) | `infra/oxicloud/oxicloud.yaml` |
 | `office.ffd.link` (Euro-Office) | `infra/euro-office/euro-office.yaml` |
+| `komga.ffd.link` (Komga) | `infra/komga/komga.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 

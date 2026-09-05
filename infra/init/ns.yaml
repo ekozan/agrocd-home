@@ -38,3 +38,15 @@ metadata:
   labels:
     pod-security.kubernetes.io/warn: baseline
     pod-security.kubernetes.io/audit: baseline
+---
+# Namespace Komga (bibliothèque BD/mangas, komga.ffd.link). Créé tôt (wave -1)
+# pour que l'app network-policies (wave 8) et la réplication du certificat
+# wildcard le trouvent avant le déploiement de l'app komga (wave 13).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: komga
+  labels:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit).
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
