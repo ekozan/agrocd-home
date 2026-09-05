@@ -295,7 +295,7 @@ spec:
                     crowdsecAppsecEnabled: "true"
                     crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
                     crowdsecAppsecScheme: http
-                    crowdsecAppsecFailureBlock: "true"
+                    crowdsecAppsecFailureBlock: "false"
                     crowdsecAppsecUnreachableBlock: "true"
                     crowdsecAppsecBodyLimit: "10485760"
               EOF
