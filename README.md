@@ -10,7 +10,7 @@ Kubernetes Cluster
 ├── Secrets         → Vault / OpenBao + External-Secrets + Cert-Manager
 ├── Identité        → Zitadel (IdP OIDC)
 ├── Base de données → CloudNativePG (instance unique `pg-main`, bases multiples)
-├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
+├── Stockage        → Democratic-CSI (TrueNAS NFS + montage SMB manuel)
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Coder (IDE cloud)
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
@@ -66,6 +66,8 @@ Avant de déployer, les secrets suivants doivent être présents dans Vault / Op
 - Credentials TrueNAS (Democratic-CSI) : NFS et SMB
 - Clés API LLM (Anthropic, etc.) pour LiteLLM
 - Client secret Zitadel pour Tuwunel (injecté via ExternalSecret → Secret `tuwunel-oidc-secret`, clé `TUWUNEL_OIDC_CLIENT_SECRET`)
+- Client OIDC Zitadel pour Komga : `kv/kubernetes/komga/zitadel` { `client_id`, `client_secret` } — cf. `infra/komga/README.md`
+- Credentials du partage SMB monté par Komga : `kv/kubernetes/democratic-csi/smb-credentials` { `mount_flags` }
 - *(Element Call : la clé/secret d'API LiveKit est générée automatiquement dans le cluster par un Job de bootstrap — aucun secret à fournir.)*
 - Certificats TLS si non gérés par Cert-Manager
 
@@ -110,7 +112,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `1` | Cert-Manager, Trust-Manager, External-Secrets, Kubernetes-Replicator |
 | `2` | Issuers ACME (OVH webhook), Secret Stores (Vault/OpenBao) |
 | `3` | Certificat TLS PostgreSQL Zitadel, **Opérateur CloudNativePG** |
-| `4` | **Instance PostgreSQL centralisée `pg-main` (+ bases)**, PostgreSQL Zitadel (legacy), Democratic-CSI (TrueNAS) |
+| `4` | **Instance PostgreSQL centralisée `pg-main` (+ bases)**, PostgreSQL Zitadel (legacy), Democratic-CSI (TrueNAS NFS + `node-manual`) |
 | `5` | Zitadel (IdP) |
 | `6` | Gitea |
 | `7` | Gitea Act Runner |
@@ -119,7 +121,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
-| `13` | Komga (`komga.ffd.link`) — priorité `homelab-low` |
+| `13` | Komga (`komga.ffd.link`) — priorité `homelab-low`, bibliothèque SMB existante |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -168,6 +170,7 @@ agrocd-home/
 │   │   └── migration/             # Jobs pg_dump/pg_restore (NON synchro ArgoCD)
 │   │                              # (préfixe = sync-wave : 0/1/2)
 │   ├── 04-*.yaml             # DB Zitadel (legacy) + TrueNAS storage
+│   ├── 04-csi-node-manual.yaml # CSI democratic-csi `node-manual` (montage de partages existants)
 │   ├── 05-zitadel.yaml
 │   ├── 06-gitea.yaml
 │   ├── 07-gitea-act-runner.yaml
@@ -178,7 +181,7 @@ agrocd-home/
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
 │   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │   ├── 13-komga.yaml         # App ArgoCD → ./infra/komga (komga.ffd.link)
-│   └── komga/                # Komga (PVC config Longhorn + PVC NFS bibliothèque, Deployment, Service, Ingress)
+│   └── komga/                # Komga (PVC config Longhorn 500Mi + PV/PVC SMB existant, OIDC, Deployment, Service, Ingress) + README
 │
 ├── dev/
 │   ├── coder.yaml
@@ -212,7 +215,7 @@ agrocd-home/
 | PostgreSQL (Zitadel, *legacy*) | `charts.bitnami.com/bitnami` | 15.x | zitadel |
 | Gitea | `dl.gitea.com/charts/` | 12.4.0 | gitea |
 | Gitea Act Runner | `dl.gitea.com/charts/` | 0.1.0 | gitea |
-| Democratic-CSI | `democratic-csi.github.io/charts/` | 0.15.1 | democratic-csi |
+| Democratic-CSI (NFS + `node-manual`) | `democratic-csi.github.io/charts/` | 0.15.1 | democratic-csi |
 | Coder | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |

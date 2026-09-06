@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-node-manual
+  namespace: argocd
+  annotations:
+    # Même vague que le CSI NFS (`infra/04 - truenassotrage.yaml`) : les deux
+    # pilotes doivent être en place avant les apps qui montent des volumes.
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: democratic-csi
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+  source:
+    chart: democratic-csi
+    repoURL: https://democratic-csi.github.io/charts/
+    targetRevision: 0.15.1
+    helm:
+      # Release distincte de `democratic-csi` (CSI NFS) : tous les noms de
+      # ressources du chart dérivent du nom de release → aucune collision,
+      # et le CSIDriver porte un nom propre (org.democratic-csi.node-manual).
+      releaseName: democratic-csi-node-manual
+      valuesObject:
+        # Pilote `node-manual` : ne provisionne RIEN côté TrueNAS, il se
+        # contente de monter des partages DÉJÀ EXISTANTS déclarés en PV
+        # statiques (cf. infra/komga/komga.yaml → PV komga-library, SMB).
+        csiDriver:
+          name: "org.democratic-csi.node-manual"
+          # Pas de controller → pas de ControllerPublish : sans cela les
+          # VolumeAttachment resteraient éternellement en attente.
+          attachRequired: false
+
+        # Aucune StorageClass : le provisionnement dynamique reste l'affaire
+        # du CSI NFS (freenas-nfs-csi) et de Longhorn.
+        storageClasses: []
+
+        # Seul le DaemonSet node est utile (il exécute le mount cifs/nfs).
+        controller:
+          enabled: false
+
+        driver:
+          config:
+            driver: node-manual

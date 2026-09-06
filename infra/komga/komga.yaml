@@ -3,9 +3,12 @@
 #
 # Komga — serveur de médias pour BD / mangas / magazines / eBooks
 # (https://komga.org). Application autonome : base embarquée SQLite dans
-# /config, aucune dépendance à pg-main ni à un secret externe. Les livres
-# sont lus depuis un partage TrueNAS NFS monté en /data ; Komga scanne ce
-# répertoire.
+# /config, aucune dépendance à pg-main. Les livres sont lus depuis un
+# partage SMB EXISTANT monté en /data (PV statique, aucun provisionnement) ;
+# Komga scanne ce répertoire.
+#
+# Authentification : comptes locaux Komga + login OIDC Zitadel
+# (idp.ffd.link). Pré-requis manuels : voir infra/komga/README.md.
 #
 # Alimentation de la bibliothèque : pas d'upload de livre par le navigateur.
 # L'écran « Import > Books » de l'UI parcourt le SYSTÈME DE FICHIERS DU
@@ -22,8 +25,39 @@
 # Never` porté par la classe). C'est un service de confort : sa perte est
 # sans conséquence sur l'infra ou les services critiques.
 ---
+# ExternalSecret — credentials du client OIDC Zitadel (confidentiel).
+# Pré-requis OpenBao : kv/kubernetes/komga/zitadel { client_id, client_secret }
+# Application OIDC à créer dans Zitadel (code flow + secret), redirect :
+#   https://komga.ffd.link/login/oauth2/code/zitadel
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: komga-oidc
+  namespace: komga
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: komga-oidc
+    creationPolicy: Owner
+  data:
+    - secretKey: client_id
+      remoteRef:
+        key: kubernetes/komga/zitadel
+        property: client_id
+    - secretKey: client_secret
+      remoteRef:
+        key: kubernetes/komga/zitadel
+        property: client_secret
+---
 # PersistentVolumeClaim — base SQLite, index Lucene, miniatures (Longhorn).
-# Doit être local/rapide : la base embarquée supporte mal NFS.
+# Doit être local/rapide : la base embarquée supporte mal les montages réseau.
+# 500 Mo : suffisant pour la base et l'index ; les miniatures grossissent avec
+# le catalogue → Longhorn autorise l'expansion à chaud si besoin.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -37,9 +71,57 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      storage: 10Gi
+      storage: 500Mi
 ---
-# PersistentVolumeClaim — bibliothèque de livres (TrueNAS NFS, RWX).
+# PersistentVolume — bibliothèque : partage SMB DÉJÀ EXISTANT.
+#
+# Aucun provisionnement : le pilote `node-manual` (déployé par
+# infra/04-csi-node-manual.yaml) se contente de monter le partage en cifs.
+# Les identifiants viennent du Secret `democratic-csi-smb-creds` déjà présent
+# dans le namespace democratic-csi (ExternalSecret OpenBao,
+# kv/kubernetes/democratic-csi/smb-credentials, clé `mount_flags` au format
+# `username=…,password=…`).
+#
+# ⚠️ `server` et `share` sont à renseigner avec l'hôte et le nom du partage
+# réels avant la première synchro : ce sont les deux seules valeurs propres à
+# l'installation (elles ne sont pas secrètes, d'où leur présence ici).
+#
+# `claimRef` pré-réserve le volume au PVC ci-dessous (aucun autre PVC ne peut
+# le capter) ; `Retain` garantit que la suppression du PVC ne touche pas au
+# partage existant.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: komga-library
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  # Valeur purement déclarative : un partage SMB n'expose pas de quota au CSI.
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: komga
+    name: komga-library
+  csi:
+    driver: org.democratic-csi.node-manual
+    readOnly: false
+    fsType: cifs
+    volumeHandle: komga-library-smb
+    nodeStageSecretRef:
+      name: democratic-csi-smb-creds
+      namespace: democratic-csi
+    volumeAttributes:
+      server: CHANGEME-nas.lan
+      share: CHANGEME-komga
+      node_attach_driver: smb
+      provisioner_driver: node-manual
+---
+# PersistentVolumeClaim — se lie au PV statique ci-dessus (storageClassName
+# vide + volumeName : pas de provisionnement dynamique).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -50,10 +132,11 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassName: freenas-nfs-csi
+  storageClassName: ""
+  volumeName: komga-library
   resources:
     requests:
-      storage: 100Gi
+      storage: 1Ti
 ---
 # Deployment — Komga (JVM, un seul réplica : PVC config en RWO)
 apiVersion: apps/v1
@@ -96,6 +179,49 @@ spec:
             # la limite → OOMKill au lieu d'un GC.
             - name: JAVA_TOOL_OPTIONS
               value: "-Xmx1g"
+            # ── OIDC (Zitadel) ──────────────────────────────────────────────
+            # Komga est un Spring Boot : la config OAuth2 passe par les
+            # propriétés `spring.security.oauth2.client.*`. En variables
+            # d'environnement, les noms de propriétés s'écrivent SANS
+            # séparateur (CLIENTID, ISSUERURI…) : le binding relâché de Spring
+            # ne sait pas distinguer `client_id` de `client.id` sinon.
+            # `zitadel` est l'identifiant d'enregistrement, repris dans l'URL
+            # de callback → https://komga.ffd.link/login/oauth2/code/zitadel
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_ZITADEL_ISSUERURI
+              value: "https://idp.ffd.link"
+            # Komga rapproche l'utilisateur OIDC de son compte par l'e-mail.
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_ZITADEL_USERNAMEATTRIBUTE
+              value: "email"
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_PROVIDER
+              value: "zitadel"
+            # Libellé du bouton sur la page de login.
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_CLIENTNAME
+              value: "FFD Link"
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_AUTHORIZATIONGRANTTYPE
+              value: "authorization_code"
+            # {baseUrl} est résolu par Spring d'après les en-têtes
+            # X-Forwarded-* de Traefik (Komga active déjà
+            # server.forward-headers-strategy=framework par défaut).
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_REDIRECTURI
+              value: "{baseUrl}/login/oauth2/code/{registrationId}"
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_SCOPE
+              value: "openid,profile,email"
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_CLIENTID
+              valueFrom:
+                secretKeyRef:
+                  name: komga-oidc
+                  key: client_id
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_ZITADEL_CLIENTSECRET
+              valueFrom:
+                secretKeyRef:
+                  name: komga-oidc
+                  key: client_secret
+            # Crée automatiquement le compte Komga à la première connexion
+            # OIDC (sinon l'e-mail doit déjà exister côté Komga). L'e-mail doit
+            # être vérifié dans Zitadel (claim `email_verified`), Komga
+            # refusant sinon la connexion (komga.oidc-email-verification).
+            - name: KOMGA_OAUTH2_ACCOUNT_CREATION
+              value: "true"
           volumeMounts:
             - name: config
               mountPath: /config
