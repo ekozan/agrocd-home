@@ -82,9 +82,10 @@ spec:
 # kv/kubernetes/democratic-csi/smb-credentials, clé `mount_flags` au format
 # `username=…,password=…`).
 #
-# ⚠️ `server` et `share` sont à renseigner avec l'hôte et le nom du partage
-# réels avant la première synchro : ce sont les deux seules valeurs propres à
-# l'installation (elles ne sont pas secrètes, d'où leur présence ici).
+# `server` / `share` = partage `\\nas.home\bd-manga`. Non secrets (les
+# identifiants, eux, viennent du Secret ci-dessus), d'où leur présence ici.
+# `nas.home` doit être résolvable par les nœuds (DNS du LAN) : si la
+# résolution échoue côté kubelet, remplacer par l'IP du NAS.
 #
 # `claimRef` pré-réserve le volume au PVC ci-dessous (aucun autre PVC ne peut
 # le capter) ; `Retain` garantit que la suppression du PVC ne touche pas au
@@ -115,8 +116,8 @@ spec:
       name: democratic-csi-smb-creds
       namespace: democratic-csi
     volumeAttributes:
-      server: CHANGEME-nas.lan
-      share: CHANGEME-komga
+      server: nas.home
+      share: bd-manga
       node_attach_driver: smb
       provisioner_driver: node-manual
 ---

@@ -21,13 +21,15 @@ SMB déjà existant**. Le montage est assuré par le pilote `node-manual` de
 democratic-csi (App `infra/04-csi-node-manual.yaml`), qui ne fait *que*
 monter — il ne crée ni dataset ni share côté NAS.
 
-Deux valeurs sont à renseigner dans le PV `komga-library`
-(`volumeAttributes`) avant la première synchro :
+Partage monté (PV `komga-library`, `volumeAttributes`) :
 
 ```yaml
-      server: <hôte ou IP du serveur SMB>
-      share: <nom du partage>
+      server: nas.home     # résolu par le DNS du LAN depuis les nœuds
+      share: bd-manga
 ```
+
+> Si `nas.home` n'est pas résolvable par les kubelets, mettre l'IP du NAS à
+> la place : la résolution a lieu **sur le nœud**, pas via le DNS du cluster.
 
 Les identifiants réutilisent le Secret **existant**
 `democratic-csi-smb-creds` (namespace `democratic-csi`, alimenté par
