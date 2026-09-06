@@ -5,7 +5,15 @@
 # (https://komga.org). Application autonome : base embarquée SQLite dans
 # /config, aucune dépendance à pg-main ni à un secret externe. Les livres
 # sont lus depuis un partage TrueNAS NFS monté en /data ; Komga scanne ce
-# répertoire (il n'expose pas d'upload).
+# répertoire.
+#
+# Alimentation de la bibliothèque : pas d'upload de livre par le navigateur.
+# L'écran « Import > Books » de l'UI parcourt le SYSTÈME DE FICHIERS DU
+# SERVEUR (POST /api/v1/books/import ne prend qu'un chemin `sourceFile`,
+# pas un corps de fichier) → déposer les fichiers sur le partage NFS
+# (SMB/NFS/rsync côté TrueNAS), Komga les détecte ensuite. Seules les
+# vignettes/posters s'envoient en multipart depuis l'UI, et Spring y
+# applique ses défauts (1 Mo par fichier) → aucun gros corps de requête.
 #
 # Priorité : `homelab-low` (la plus basse du cluster — cf.
 # init/resource-policies/priorityclasses.yaml). Sous pression mémoire ou
@@ -151,8 +159,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    # Middleware standard (corps entier inspecté) : Komga n'a pas d'upload,
-    # la bibliothèque est alimentée par le partage NFS.
+    # Middleware standard (corps entier inspecté) : les seuls envois sont des
+    # vignettes (≤ 1 Mo), la bibliothèque étant alimentée par le partage NFS.
+    # Pas besoin du variant `crowdsec-largebody` réservé à OxiCloud.
     traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
 spec:
   ingressClassName: traefik
