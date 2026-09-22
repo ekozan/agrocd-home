@@ -8,6 +8,91 @@
 # Les middlewares se chaînent ; ex. CrowdSec + accès local uniquement :
 #   ...router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
 ---
+# Bouncer CrowdSec (plugin maxlerebourg/crowdsec-bouncer-traefik-plugin v1.6.0).
+#
+# Ces deux middlewares étaient auparavant créés AU RUNTIME par le Job PostSync
+# crowdsec-bouncer-register (kubectl apply), donc absents de Git : une fois
+# supprimés du cluster, rien ne les recréait (hook exécuté seulement lors d'une
+# sync effective de clusterinit, et les hooks sont exclus du diff ArgoCD).
+# Ils sont désormais déclaratifs ; seule la clé du bouncer reste hors Git : elle
+# est lue au runtime par Traefik dans le Secret traefik/crowdsec-bouncer-key
+# (syntaxe urn:k8s:secret:<secret>:<clé>, Secret dans le même namespace que le
+# Middleware), Secret alimenté par le Job crowdsec-bouncer-register.
+#
+# Stream LAPI (mode stream) :
+#  - httpTimeoutSeconds (défaut 10) : le GET /v1/decisions/stream?startup=true
+#    renvoie TOUTES les décisions (blocklists communautaires/Console incluses) et
+#    ne se lisait plus en 10 s (« crowdsecQuery:readBody context deadline
+#    exceeded »). ⚠️ Ce délai s'applique AUSSI aux appels AppSec : on reste donc
+#    raisonnable, et sous updateIntervalSeconds (60 s) pour ne jamais lancer deux
+#    téléchargements complets en parallèle (le plugin fait `go work()` à chaque tick).
+#  - updateMaxFailure (défaut 0) : au 1er échec, le plugin passe
+#    isCrowdsecStreamHealthy=false et renvoie 403 TECHNICAL_ISSUE à TOUT le monde
+#    (fail-closed), puis ne redemande plus que des flux complets (startup=true),
+#    les plus lents → cercle vicieux, jamais rétabli. -1 = fail-open : en cas
+#    d'échec, les décisions déjà en cache restent appliquées et le trafic passe.
+#    Les blocages AppSec (WAF inband) restent actifs.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: crowdsec
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # WAF strict (corps entier inspecté), appliqué à TOUS les services publics.
+  plugin:
+    crowdsec:
+      enabled: "true"
+      logLevel: INFO
+      # Page HTML servie aux IP bannies (montée via le chart Traefik)
+      banHTMLFilePath: /etc/traefik/crowdsec/ban.html
+      crowdsecMode: stream
+      httpTimeoutSeconds: "45"
+      updateIntervalSeconds: "60"
+      updateMaxFailure: "-1"
+      crowdsecLapiScheme: http
+      crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+      crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-key:apiKey"
+      crowdsecAppsecEnabled: "true"
+      crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
+      crowdsecAppsecScheme: http
+      crowdsecAppsecFailureBlock: "true"
+      crowdsecAppsecUnreachableBlock: "true"
+---
+# Identique à `crowdsec` + plafond d'inspection du corps AppSec
+# (crowdsecAppsecBodyLimit = 10 Mo). Réservé aux services à gros uploads
+# (OxiCloud) : sans plafond, le plugin transmet TOUT le corps à l'AppSec, qui
+# rejette au-delà de sa limite. 10 Mo inspectés (en-têtes + début de requête =
+# là où sont les attaques) ; au-delà, le corps streame vers le backend sans
+# inspection WAF. Relaxation confinée à OxiCloud (fichiers = blobs opaques).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: crowdsec-largebody
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  plugin:
+    crowdsec:
+      enabled: "true"
+      logLevel: INFO
+      banHTMLFilePath: /etc/traefik/crowdsec/ban.html
+      crowdsecMode: stream
+      httpTimeoutSeconds: "45"
+      updateIntervalSeconds: "60"
+      updateMaxFailure: "-1"
+      crowdsecLapiScheme: http
+      crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+      crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-key:apiKey"
+      crowdsecAppsecEnabled: "true"
+      crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
+      crowdsecAppsecScheme: http
+      crowdsecAppsecFailureBlock: "false"
+      crowdsecAppsecUnreachableBlock: "true"
+      crowdsecAppsecBodyLimit: "10485760"
+---
 # Restreint l'accès aux réseaux locaux 10.10.x.x et 10.5.x.x.
 # Traefik est exposé en LoadBalancer avec externalTrafficPolicy: Local
 # (cf. 00-traefik3.yaml) → l'IP source réelle du client est préservée, donc

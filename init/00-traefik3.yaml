@@ -16,10 +16,15 @@ spec:
     helm:
       releaseName: traefik3
       valuesObject:
-        # Logs d'accès requis pour que l'agent CrowdSec parse le trafic
-        logs:
-          access:
-            enabled: true
+        # Logs d'accès requis pour que l'agent CrowdSec parse le trafic.
+        # ⚠️ Chart >= 41 : `logs.access.*` est devenu `accessLog.*` (BREAKING
+        # CHANGE traefik-helm-chart#1887). Le schéma du chart refuse toute clé
+        # racine inconnue → avec l'ancienne clé `logs`, `helm template` échoue
+        # (« Additional property logs is not allowed ») et l'Application reste
+        # en Unknown/ComparisonError : plus AUCUN changement de cette
+        # Application n'atteint le cluster (bloqué sur le chart 40.3.0).
+        accessLog:
+          enabled: true
         # Page de ban CrowdSec (ConfigMap crowdsec-ban-page) montée dans le
         # conteneur Traefik → /etc/traefik/crowdsec/ban.html, référencée par
         # le middleware crowdsec via banHTMLFilePath.
