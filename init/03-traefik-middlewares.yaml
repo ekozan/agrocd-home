@@ -17,7 +17,8 @@
 # Ils sont désormais déclaratifs ; seule la clé du bouncer reste hors Git : elle
 # est lue au runtime par Traefik dans le Secret traefik/crowdsec-bouncer-key
 # (syntaxe urn:k8s:secret:<secret>:<clé>, Secret dans le même namespace que le
-# Middleware), Secret alimenté par le Job crowdsec-bouncer-register.
+# Middleware), Secret alimenté par le Job crowdsec-bouncer-register (hook Sync
+# wave 2, donc toujours AVANT ces Middlewares en wave 3).
 #
 # Stream LAPI (mode stream) :
 #  - httpTimeoutSeconds (défaut 10) : le GET /v1/decisions/stream?startup=true
@@ -38,7 +39,9 @@ metadata:
   name: crowdsec
   namespace: traefik
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    # Wave 3 : après le Job crowdsec-bouncer-register (hook Sync, wave 2) qui
+    # publie le Secret crowdsec-bouncer-key lu ci-dessous.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   # WAF strict (corps entier inspecté), appliqué à TOUS les services publics.
   plugin:
@@ -72,7 +75,9 @@ metadata:
   name: crowdsec-largebody
   namespace: traefik
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    # Wave 3 : après le Job crowdsec-bouncer-register (hook Sync, wave 2) qui
+    # publie le Secret crowdsec-bouncer-key lu ci-dessous.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   plugin:
     crowdsec:

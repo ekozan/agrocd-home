@@ -181,8 +181,13 @@ metadata:
   name: crowdsec-bouncer-register
   namespace: crowdsec
   annotations:
-    # Rejoué après chaque sync, une fois le LAPI déployé ; supprimé si succès
-    argocd.argoproj.io/hook: PostSync
+    # Hook de phase Sync, wave 2 : rejoué à chaque sync, APRÈS le LAPI
+    # (Application crowdsec, wave 1) et AVANT les Middlewares crowdsec*
+    # (wave 3) qui lisent le Secret traefik/crowdsec-bouncer-key. En PostSync,
+    # les Middlewares pointaient vers un Secret pas encore créé → routes en
+    # erreur jusqu'à la fin de la sync. Supprimé si succès.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "2"
     argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
     argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
