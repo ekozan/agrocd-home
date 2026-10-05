@@ -392,7 +392,7 @@ spec:
           namespace: traefik
 ```
 
-**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `infra/crowdsec-ui/`, déployée par l'App ArgoCD `infra/09-crowdsec-ui.yaml`) interroge le LAPI local pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16`).
+**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `infra/crowdsec-ui/`, déployée par l'App ArgoCD `infra/09-crowdsec-ui.yaml`) interroge le LAPI local pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16` + pairs NetBird `100.64.0.0/10`).
 
 Connexion au LAPI via un **compte machine** `crowdsec-web-ui` enregistré par le Job `crowdsec-ui-register` (ressource ArgoCD en `sync-wave 1`, exécutée **avant** le Deployment afin que le Secret existe quand le pod le monte — un hook `PostSync` provoquerait un interblocage). Le mot de passe est généré **une seule fois** dans le Secret `crowdsec-web-ui-credentials` (render déterministe, compatible `selfHeal`). Le cache SQLite de l'UI est persisté sur un PVC Longhorn (`/app/data`). Une NetworkPolicy dédiée autorise les pods Traefik à joindre l'UI sur le port `3000` (le namespace `crowdsec` étant en `default-deny-ingress`).
 
@@ -445,7 +445,7 @@ Définis dans `init/03-traefik-middlewares.yaml` (namespace `traefik`, comme le 
 |------------|------|-----------|
 | `crowdsec` | Bouncer + AppSec WAF CrowdSec (corps entier inspecté) | `traefik-crowdsec@kubernetescrd` |
 | `crowdsec-largebody` | Idem `crowdsec` mais inspection AppSec du corps plafonnée à 10 Mo (services à gros uploads : OxiCloud) | `traefik-crowdsec-largebody@kubernetescrd` |
-| `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16` et `10.5.0.0/16` | `traefik-local-only@kubernetescrd` |
+| `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16`, `10.5.0.0/16` et aux pairs NetBird `100.64.0.0/10` | `traefik-local-only@kubernetescrd` |
 | `oidc-auth` | Login OIDC via Zitadel (plugin `traefik-oidc-auth`) | `traefik-oidc-auth@kubernetescrd` |
 
 **Appliquer sur une route** (les middlewares se chaînent, séparés par des virgules) :
