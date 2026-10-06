@@ -1,0 +1,76 @@
+# Kasm Workspaces via Kustomize + chart Helm officiel (kasmtech/kasm-helm).
+# Nécessite `kustomize.buildOptions: --enable-helm` dans argocd-cm (cf. dev/kasm.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kasm
+
+resources:
+  - secrets-keygen.yaml
+
+helmCharts:
+  - name: kasm-helm
+    repo: https://helm.kasm.com
+    # La version du chart suit celle de Kasm (1.1190.x = Kasm 1.19.0).
+    version: 1.1190.6
+    releaseName: kasm
+    namespace: kasm
+    valuesInline:
+      publicAddr: kasm.ffd.link
+      deploymentSize: small
+      # Résolveur DNS des sidecars nginx. Le chart le déduit via `lookup`, qui
+      # ne fonctionne pas en `helm template` (ArgoCD/Kustomize) et retombe sur
+      # 127.0.0.11 (DNS Docker) → on fixe l'IP du Service kube-dns
+      # (défaut k3s/RKE2 : 10.43.0.10).
+      nginxResolver: 10.43.0.10
+      # Exposé uniquement via Traefik (pas de LoadBalancer MetalLB).
+      proxyService:
+        type: ClusterIP
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        annotations:
+          # Protection CrowdSec (bouncer + AppSec)
+          traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+      certificate:
+        # Wildcard *.ffd.link répliqué dans tous les namespaces.
+        secretName: ffd-link-tls
+        certManager:
+          addWildCard: false
+      # Le chart génère ses mots de passe avec `lookup` + randAlphaNum : sous
+      # ArgoCD ils seraient régénérés à chaque rendu. On utilise un Secret
+      # pré-créé une seule fois par le Job secrets-keygen.yaml.
+      kasmSecrets:
+        create: false
+        name: kasm-secrets
+      database:
+        storage:
+          storageClassName: longhorn
+      components:
+        guac:
+          recordingData:
+            storageClassName: longhorn
+      imagePullPolicy: IfNotPresent
+
+# Priorité basse sur tous les pods du chart (le chart n'expose pas
+# priorityClassName) : Kasm est évincé avant les workloads standard.
+patches:
+  - target:
+      kind: (Deployment|StatefulSet|Job)
+      labelSelector: app.kubernetes.io/instance=kasm
+    patch: |-
+      - op: add
+        path: /spec/template/spec/priorityClassName
+        value: homelab-low
+  # Job db-init : le chart lui met un TTL (supprimé 5 min après succès) →
+  # ArgoCD (selfHeal) le recréerait en boucle. On retire le TTL pour qu'il
+  # reste en place, et Replace=true permet de le recréer proprement lors d'un
+  # changement de version du chart (spec d'un Job immuable).
+  - target:
+      kind: Job
+      name: kasm-db-init
+    patch: |-
+      - op: remove
+        path: /spec/ttlSecondsAfterFinished
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-options
+        value: Replace=true

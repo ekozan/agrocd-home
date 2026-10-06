@@ -37,6 +37,7 @@ spec:
     - https://helm.coder.com/v2
     - https://aureq.github.io/cert-manager-webhook-ovh/
     - oci://docker.litellm.ai/berriai/litellm-helm
+    - https://helm.kasm.com
 
   # Seul le cluster local est une destination valide (tous namespaces).
   destinations:
