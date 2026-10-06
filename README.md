@@ -12,7 +12,7 @@ Kubernetes Cluster
 ├── Base de données → CloudNativePG (instance unique `pg-main`, bases multiples)
 ├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
-├── Dev             → Coder (IDE cloud)
+├── Dev             → Kasm Workspaces (VDI, priorité basse) — Coder désactivé
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
 └── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
@@ -23,7 +23,8 @@ Kubernetes Cluster
 | Service | URL |
 |---------|-----|
 | Gitea | `https://git.ffd.link` |
-| Coder | `https://coder.ffd.link` |
+| Kasm Workspaces | `https://kasm.ffd.link` |
+| Coder (*désactivé*) | `https://coder.ffd.link` |
 | Zitadel | `https://idp.ffd.link` |
 | Vault | `https://vault.server` |
 | Tuwunel (Matrix) | `https://matrix.ffd.link` |
@@ -176,7 +177,9 @@ agrocd-home/
 │   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │
 ├── dev/
-│   ├── coder.yaml
+│   ├── kasm.yaml             # App ArgoCD → ./dev/kasm (Kustomize + chart Helm, priorité homelab-low)
+│   ├── kasm/                 # kustomization (chart kasm-helm + patch priorityClassName) + Job keygen
+│   ├── disabled/coder.yaml   # Coder désactivé (sous-dossier non synchronisé par l'app `dev`)
 │   ├── coder-db.yaml
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
@@ -208,7 +211,8 @@ agrocd-home/
 | Gitea | `dl.gitea.com/charts/` | 12.4.0 | gitea |
 | Gitea Act Runner | `dl.gitea.com/charts/` | 0.1.0 | gitea |
 | Democratic-CSI | `democratic-csi.github.io/charts/` | 0.15.1 | democratic-csi |
-| Coder | `helm.coder.com/v2` | 2.34.0 | coder |
+| Kasm Workspaces | `helm.kasm.com` (via Kustomize `--enable-helm`) | 1.1190.6 | kasm |
+| Coder (*désactivé*) | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
 **Manifests bruts (sans Helm)**
@@ -314,7 +318,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 |-------|---------|
 | `git.ffd.link` (Gitea) | `infra/06 gitea.yaml` |
 | `idp.ffd.link` (Zitadel) | `infra/05 zitadel.yaml` |
-| `coder.ffd.link` (+ wildcard) | `dev/coder.yaml` |
+| `kasm.ffd.link` (Kasm Workspaces) | `dev/kasm/kustomization.yaml` |
 | `matrix.ffd.link` (Tuwunel) | `chat/tuwunel.yaml` |
 | `ffd.link/.well-known/matrix` | `chat/tuwunel.yaml` |
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |

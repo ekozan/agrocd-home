@@ -1,0 +1,48 @@
+# Kasm Workspaces — plan de contrôle (api, manager, guac, rdp-gateway, proxy +
+# PostgreSQL embarqué). Les sessions (desktops/navigateurs) ne tournent PAS
+# dans le cluster : elles sont hébergées par des Docker Agents externes.
+# Doc : https://docs.kasm.com/docs/tutorials/install/kubernetes
+#
+# Le chart officiel n'expose pas `priorityClassName` : il est donc gonflé via
+# Kustomize (dev/kasm/kustomization.yaml) qui patche tous les pods en
+# `homelab-low` (premiers évincés, ne préemptent jamais).
+#
+# ⚠️ Prérequis ArgoCD (une seule fois) : autoriser l'inflation Helm par
+# Kustomize dans argocd-cm :
+#     kubectl -n argocd patch cm argocd-cm --type merge \
+#       -p '{"data":{"kustomize.buildOptions":"--enable-helm"}}'
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kasm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: kasm
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: main
+    path: dev/kasm
+  syncPolicy:
+    # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 3m0s
+        factor: 2
