@@ -3,14 +3,12 @@
 # dans le cluster : elles sont hébergées par des Docker Agents externes.
 # Doc : https://docs.kasm.com/docs/tutorials/install/kubernetes
 #
-# Le chart officiel n'expose pas `priorityClassName` : il est donc gonflé via
-# Kustomize (dev/kasm/kustomization.yaml) qui patche tous les pods en
-# `homelab-low` (premiers évincés, ne préemptent jamais).
+# Multi-source :
+#   1. chart Helm officiel kasm-helm (natif ArgoCD, pas de Kustomize) ;
+#   2. dev/kasm/ : Job PreSync qui crée le Secret kasm-secrets une seule fois.
 #
-# ⚠️ Prérequis ArgoCD (une seule fois) : autoriser l'inflation Helm par
-# Kustomize dans argocd-cm :
-#     kubectl -n argocd patch cm argocd-cm --type merge \
-#       -p '{"data":{"kustomize.buildOptions":"--enable-helm"}}'
+# Note : le chart n'expose pas `priorityClassName` → les pods tournent en
+# `homelab-standard` (globalDefault).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -25,10 +23,59 @@ spec:
   destination:
     server: "https://kubernetes.default.svc"
     namespace: kasm
-  source:
-    repoURL: https://github.com/ekozan/agrocd-home.git
-    targetRevision: main
-    path: dev/kasm
+  sources:
+    - chart: kasm-helm
+      repoURL: https://helm.kasm.com
+      # La version du chart suit celle de Kasm (1.1190.x = Kasm 1.19.0).
+      targetRevision: 1.1190.6
+      helm:
+        releaseName: kasm
+        valuesObject:
+          publicAddr: kasm.ffd.link
+          deploymentSize: small
+          # Résolveur DNS des sidecars nginx. Le chart le déduit via `lookup`,
+          # inopérant sous ArgoCD (rendu `helm template`) → il retomberait sur
+          # 127.0.0.11 (DNS Docker). On fixe l'IP du Service kube-dns
+          # (défaut k3s/RKE2 : 10.43.0.10).
+          nginxResolver: 10.43.0.10
+          # Exposé uniquement via Traefik (pas de LoadBalancer MetalLB).
+          proxyService:
+            type: ClusterIP
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              # Protection CrowdSec (bouncer + AppSec)
+              traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+          certificate:
+            # Wildcard *.ffd.link répliqué dans tous les namespaces.
+            secretName: ffd-link-tls
+            certManager:
+              addWildCard: false
+          # Le chart génère ses mots de passe avec `lookup` + randAlphaNum :
+          # sous ArgoCD ils seraient régénérés à chaque rendu. On utilise un
+          # Secret pré-créé une seule fois par dev/kasm/secrets-keygen.yaml.
+          kasmSecrets:
+            create: false
+            name: kasm-secrets
+          database:
+            storage:
+              storageClassName: longhorn
+          dbManagement:
+            # Le chart supprime le Job db-init après ce délai (défaut 300 s) et
+            # ArgoCD (selfHeal) le recréerait aussitôt → délai allongé (~11 j).
+            # Max 999999 : au-delà Helm le rend en notation scientifique
+            # (3.15e+08), invalide pour l'API. Le Job est idempotent (il
+            # vérifie que la base est déjà initialisée et sort).
+            initJobTTLSecondsAfterFinished: 999999
+          components:
+            guac:
+              recordingData:
+                storageClassName: longhorn
+          imagePullPolicy: IfNotPresent
+    - repoURL: https://github.com/ekozan/agrocd-home.git
+      targetRevision: main
+      path: dev/kasm
   syncPolicy:
     # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
     managedNamespaceMetadata:
