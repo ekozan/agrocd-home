@@ -22,6 +22,7 @@ Kubernetes Cluster
 
 | Service | URL |
 |---------|-----|
+| ArgoCD | `https://argocd.ffd.link` (LAN uniquement) |
 | Gitea | `https://git.ffd.link` |
 | Kasm Workspaces | `https://kasm.ffd.link` |
 | Coder (*désactivé*) | `https://coder.ffd.link` |

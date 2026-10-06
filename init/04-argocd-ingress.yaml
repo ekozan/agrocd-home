@@ -1,0 +1,64 @@
+# Exposition de l'UI / API ArgoCD sur https://argocd.ffd.link via Traefik. Accès
+# restreint au LAN + NetBird (middleware traefik/local-only).
+#
+# Pourquoi « Internal Server Error » :
+# argocd-server (install par défaut, sans `server.insecure`) ne sert QUE du
+# HTTPS avec un certificat auto-signé, y compris sur le port 80 du Service
+# (redirection 307 → https). Un Ingress Traefik classique pointant sur
+# argocd-server:80 / :443 en HTTP, ou en HTTPS sans désactiver la vérification
+# du certificat backend, fait échouer le proxy → Traefik renvoie 500
+# (« tls: failed to verify certificate: x509 … » dans les logs Traefik).
+#
+# Solution sans toucher à la config d'ArgoCD : on parle HTTPS au backend
+# (port 443) avec un ServersTransport qui ignore le cert auto-signé. HTTP/2
+# est négocié par ALPN → le gRPC de la CLI `argocd` passe aussi
+# (`argocd login argocd.ffd.link --grpc-web` non requis).
+#
+# ⚠️ Si `server.insecure: "true"` est un jour activé (argocd-cmd-params-cm),
+# argocd-server ne parle plus TLS : il faudra alors passer `scheme: http`,
+# `port: 80` et retirer serversTransport.
+#
+# ⚠️ Supprimer l'ancien Ingress argocd créé à la main (hors Git), sinon il
+# reste en concurrence sur le même hôte :
+#   kubectl -n argocd get ingress,ingressroute
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # Cert auto-signé d'argocd-server (secret argocd-secret / argocd-server-tls)
+  insecureSkipVerify: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`argocd.ffd.link`)
+      # Priorité explicite : l'emporte sur un éventuel ancien Ingress résiduel
+      priority: 100
+      middlewares:
+        # Middlewares du namespace traefik (allowCrossNamespace: true)
+        - name: crowdsec
+          namespace: traefik
+        # Accès LAN (10.10/16, 10.5/16) + VPN NetBird (100.64/10) uniquement
+        - name: local-only
+          namespace: traefik
+      services:
+        - name: argocd-server
+          port: 443
+          scheme: https
+          serversTransport: argocd-server
+  tls:
+    # Wildcard *.ffd.link répliqué dans tous les namespaces (kubernetes-replicator)
+    secretName: ffd-link-tls
