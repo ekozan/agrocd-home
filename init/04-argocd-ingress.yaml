@@ -1,4 +1,5 @@
-# Exposition de l'UI / API ArgoCD sur https://argocd.ffd.link via Traefik.
+# Exposition de l'UI / API ArgoCD sur https://argocd.ffd.link via Traefik. Accès
+# restreint au LAN + NetBird (middleware traefik/local-only).
 #
 # Pourquoi « Internal Server Error » :
 # argocd-server (install par défaut, sans `server.insecure`) ne sert QUE du
@@ -49,6 +50,9 @@ spec:
       middlewares:
         # Middlewares du namespace traefik (allowCrossNamespace: true)
         - name: crowdsec
+          namespace: traefik
+        # Accès LAN (10.10/16, 10.5/16) + VPN NetBird (100.64/10) uniquement
+        - name: local-only
           namespace: traefik
       services:
         - name: argocd-server
