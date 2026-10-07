@@ -72,55 +72,29 @@ spec:
                 service: http
                 type: bruteforce
                 remediation: true
-          # Profils de remédiation (montés dans le pod LAPI). ⚠️ Fournir ce
-          # fichier REMPLACE les profils par défaut → on réinclut le profil
-          # générique (ban 4h) en fin de chaîne. Premier filtre qui matche +
-          # on_success:break gagne, d'où l'ordre : brute-force auth d'abord.
-          profiles.yaml: |
-            # Brute-force auth (custom/http-401-bf) : IP clairement hostile qui
-            # martèle un endpoint → ban plus long que le défaut.
-            name: bruteforce_ban
-            filters:
-              - Alert.Remediation == true && Alert.GetScenario() == "custom/http-401-bf"
-            decisions:
-              - type: ban
-                duration: 12h
-            on_success: break
-            ---
-            # Défaut CrowdSec : toute autre décision de scope IP (scénarios hub,
-            # corrélation AppSec out-of-band, etc.) → ban 4h.
-            name: default_ip_remediation
-            filters:
-              - Alert.Remediation == true && Alert.GetScope() == "Ip"
-            decisions:
-              - type: ban
-                duration: 4h
-            on_success: break
-        # Secret LAPI fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
-        # plutôt que randomisé par le chart → render déterministe sous ArgoCD
+        # Secret fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
+        # plutôt que randomisé par le chart → render déterministe sous ArgoCD.
+        # Seul `registrationToken` sert encore : l'agent et l'AppSec s'auto-
+        # enregistrent auprès du LAPI OPNsense avec ce jeton (cscli lapi register),
+        # qui doit donc être recopié dans la config `auto_registration` de l'OPNsense.
         secrets:
           externalSecret:
             name: crowdsec-lapi-secrets
-        # API locale (LAPI) : centralise les décisions, interrogée par le bouncer Traefik
-        # Requests : les défauts du chart (500m CPU, limite CPU = request) pour
-        # lapi, agent et appsec réservaient ~2,5 cœurs (agent ×3 nœuds) pour une
-        # conso réelle de quelques dizaines de millicores. Pas de limite CPU
-        # (cf. init/resource-policies : le throttling bridait l'AppSec, sur le
-        # chemin de chaque requête HTTP) ; limites mémoire conservées.
+        # LAPI hébergé sur le pare-feu OPNsense (plugin os-crowdsec) → plus de LAPI
+        # dans le cluster. Les décisions (bans) y sont centralisées et appliquées
+        # aussi au niveau pare-feu ; les profils de remédiation (ban 12h
+        # brute-force, 4h par défaut) se configurent côté OPNsense — cf. README,
+        # section « CrowdSec — LAPI sur OPNsense ».
         lapi:
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              memory: 500Mi
-          # Persistance des décisions et des clés bouncers enregistrées
-          persistentVolume:
-            data:
-              enabled: true
-              size: 1Gi
+          enabled: false
         appsec:
           enabled: true
+          lapiURL: http://10.5.0.1:8080
+          lapiHost: 10.5.0.1
+          lapiPort: 8080
+          # Défaut du chart : 500m/250Mi avec limite CPU = request → AppSec
+          # (sur le chemin de CHAQUE requête HTTP) bridé en permanence. Pas de
+          # limite CPU (cf. init/resource-policies) ; le CRS charge ~200Mi.
           resources:
             requests:
               cpu: 100m
@@ -213,7 +187,7 @@ spec:
                 - apply:
                     - RemoveOutBandRuleByName("crowdsecurity/experimental-no-user-agent")
               on_match:
-                # Whitelist 10.5.0.1 : gateway pfSense sur laquelle hairpine tout le
+                # Whitelist 10.5.0.1 : gateway OPNsense sur laquelle hairpine tout le
                 # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
                 # FQDN public). SetRemediation("allow") lève AUSSI le blocage inband
                 # de l'AppSec (sinon un faux positif WAF renvoie 403 à tout le LAN,
@@ -222,7 +196,7 @@ spec:
                 # ⚠️ Compromis assumé : le trafic interne hairpiné n'est plus inspecté
                 # (ni bloqué ni banni) — angle mort si un hôte interne est compromis.
                 # Le trafic EXTERNE (vraies IP publiques) reste, lui, pleinement filtré.
-                # Le lever proprement : split DNS / Pure NAT côté pfSense pour que les
+                # Le lever proprement : split DNS / Pure NAT côté OPNsense pour que les
                 # clients internes gardent leur vraie IP (décisions ciblées par machine).
                 #
                 # Même traitement pour les pairs NetBird (100.64.0.0/10, plage CGNAT
@@ -262,6 +236,9 @@ spec:
           # Prérequis : que le pod agent puisse se scheduler partout → requests
           # minimales (DaemonSet : la réservation est multipliée par le nombre
           # de nœuds).
+          lapiURL: http://10.5.0.1:8080
+          lapiHost: 10.5.0.1
+          lapiPort: 8080
           resources:
             requests:
               cpu: 25m

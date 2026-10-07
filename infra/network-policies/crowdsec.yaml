@@ -10,7 +10,7 @@ spec:
   policyTypes:
     - Ingress
 ---
-# Trafic intra-namespace autorisé (agent CrowdSec → LAPI).
+# Trafic intra-namespace autorisé (UI, AppSec, agents).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -24,11 +24,12 @@ spec:
     - from:
         - podSelector: {}
 ---
-# Le bouncer (plugin embarqué dans les pods Traefik) interroge le LAPI :8080.
+# Le bouncer (plugin embarqué dans les pods Traefik) interroge l'AppSec :7422.
+# Le LAPI (:8080) est hébergé sur le pare-feu OPNsense, hors cluster.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-traefik-to-lapi
+  name: allow-traefik-to-appsec
   namespace: crowdsec
 spec:
   podSelector: {}
@@ -41,6 +42,4 @@ spec:
               kubernetes.io/metadata.name: traefik
       ports:
         - protocol: TCP
-          port: 8080
-        - protocol: TCP
-          port: 7422  
+          port: 7422
