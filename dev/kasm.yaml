@@ -1,14 +1,15 @@
-# Kasm Workspaces — plan de contrôle (api, manager, guac, rdp-gateway, proxy +
-# PostgreSQL embarqué). Les sessions (desktops/navigateurs) ne tournent PAS
-# dans le cluster : elles sont hébergées par des Docker Agents externes.
+# Kasm Workspaces — plan de contrôle (api, manager, guac, proxy + PostgreSQL
+# embarqué). Les sessions (desktops/navigateurs) ne tournent PAS dans le
+# cluster : elles sont hébergées par des Docker Agents externes.
 # Doc : https://docs.kasm.com/docs/tutorials/install/kubernetes
 #
 # Multi-source :
-#   1. chart Helm officiel kasm-helm (natif ArgoCD, pas de Kustomize) ;
+#   1. dev/kasm/chart : copie du chart officiel kasm-helm 1.1190.6, patchée pour
+#      rendre configurables les ressources des initContainers (cf. README) ;
 #   2. dev/kasm/ : Job PreSync qui crée le Secret kasm-secrets une seule fois.
 #
-# Note : le chart n'expose pas `priorityClassName` → les pods tournent en
-# `homelab-standard` (globalDefault).
+# Dimensionné pour UN seul utilisateur : ressources minimales, gateways RDP
+# désactivées, un seul processus guacd.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -24,10 +25,9 @@ spec:
     server: "https://kubernetes.default.svc"
     namespace: kasm
   sources:
-    - chart: kasm-helm
-      repoURL: https://helm.kasm.com
-      # La version du chart suit celle de Kasm (1.1190.x = Kasm 1.19.0).
-      targetRevision: 1.1190.6
+    - repoURL: https://github.com/ekozan/agrocd-home.git
+      targetRevision: main
+      path: dev/kasm/chart
       helm:
         releaseName: kasm
         valuesObject:
@@ -66,54 +66,49 @@ spec:
             # vérifie que la base est déjà initialisée et sort).
             initJobTTLSecondsAfterFinished: 999999
           # Ressources : les presets `deploymentSize: small` du chart réservent
-          # requests = limits (QoS Guaranteed), soit ~5,75 CPU / ~4,3 Gi pour un
-          # plan de contrôle quasi inactif en homelab. On réserve le minimum
-          # (requests basses) et on garde des limits pour absorber les pics.
+          # requests = limits (QoS Guaranteed), soit ~5,75 CPU / ~4,3 Gi. Usage
+          # mono-utilisateur → requests au plancher, limits pour les pics.
+          initContainerResources:
+            requests: { cpu: 5m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
           database:
             storage:
               storageClassName: longhorn
             resources:
-              requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 50Mi }
+              requests: { cpu: 25m, memory: 192Mi, ephemeral-storage: 50Mi }
               limits: { cpu: "1", memory: 1Gi, ephemeral-storage: 2Gi }
           components:
             api:
               resources:
-                requests: { cpu: 100m, memory: 384Mi, ephemeral-storage: 50Mi }
+                requests: { cpu: 25m, memory: 256Mi, ephemeral-storage: 50Mi }
                 limits: { cpu: "1", memory: 1Gi, ephemeral-storage: 2Gi }
             manager:
               resources:
-                requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 50Mi }
+                requests: { cpu: 10m, memory: 192Mi, ephemeral-storage: 50Mi }
                 limits: { cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi }
             proxy:
               resources:
-                requests: { cpu: 50m, memory: 128Mi, ephemeral-storage: 50Mi }
+                requests: { cpu: 5m, memory: 64Mi, ephemeral-storage: 50Mi }
                 limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi }
             guac:
+              # Un seul processus guacd (4 par défaut en `small`).
+              guacClusterSize: 1
               recordingData:
                 storageClassName: longhorn
+                pvcSize: 1
               resources:
-                requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 50Mi }
+                requests: { cpu: 5m, memory: 96Mi, ephemeral-storage: 50Mi }
                 limits: { cpu: "1", memory: 1Gi, ephemeral-storage: 2Gi }
               nginxSidecar:
                 resources:
-                  requests: { cpu: 10m, memory: 32Mi }
+                  requests: { cpu: 5m, memory: 16Mi }
                   limits: { cpu: 250m, memory: 128Mi }
+            # Gateways RDP (accès à des machines Windows/Linux en RDP) : inutiles
+            # pour les sessions conteneurs → désactivées.
             rdpGateway:
-              resources:
-                requests: { cpu: 25m, memory: 128Mi, ephemeral-storage: 50Mi }
-                limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi }
-              nginxSidecar:
-                resources:
-                  requests: { cpu: 10m, memory: 32Mi }
-                  limits: { cpu: 250m, memory: 128Mi }
+              enabled: false
             rdpHttpsGateway:
-              resources:
-                requests: { cpu: 25m, memory: 128Mi, ephemeral-storage: 50Mi }
-                limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi }
-              nginxSidecar:
-                resources:
-                  requests: { cpu: 10m, memory: 32Mi }
-                  limits: { cpu: 250m, memory: 128Mi }
+              enabled: false
           imagePullPolicy: IfNotPresent
     - repoURL: https://github.com/ekozan/agrocd-home.git
       targetRevision: main

@@ -178,8 +178,9 @@ agrocd-home/
 │   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │
 ├── dev/
-│   ├── kasm.yaml             # App ArgoCD multi-source : chart Helm kasm-helm + ./dev/kasm
+│   ├── kasm.yaml             # App ArgoCD multi-source : ./dev/kasm/chart + ./dev/kasm
 │   ├── kasm/                 # Job keygen du Secret kasm-secrets
+│   │   └── chart/            # copie patchée du chart kasm-helm (cf. PATCHES.md)
 │   ├── disabled/coder.yaml   # Coder désactivé (sous-dossier non synchronisé par l'app `dev`)
 │   ├── coder-db.yaml
 │   ├── litellm.yaml
@@ -212,7 +213,7 @@ agrocd-home/
 | Gitea | `dl.gitea.com/charts/` | 12.4.0 | gitea |
 | Gitea Act Runner | `dl.gitea.com/charts/` | 0.1.0 | gitea |
 | Democratic-CSI | `democratic-csi.github.io/charts/` | 0.15.1 | democratic-csi |
-| Kasm Workspaces | `helm.kasm.com` | 1.1190.6 | kasm |
+| Kasm Workspaces | copie locale `dev/kasm/chart` (kasm-helm) | 1.1190.6 | kasm |
 | Coder (*désactivé*) | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
