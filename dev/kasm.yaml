@@ -58,9 +58,6 @@ spec:
           kasmSecrets:
             create: false
             name: kasm-secrets
-          database:
-            storage:
-              storageClassName: longhorn
           dbManagement:
             # Le chart supprime le Job db-init après ce délai (défaut 300 s) et
             # ArgoCD (selfHeal) le recréerait aussitôt → délai allongé (~11 j).
@@ -68,10 +65,55 @@ spec:
             # (3.15e+08), invalide pour l'API. Le Job est idempotent (il
             # vérifie que la base est déjà initialisée et sort).
             initJobTTLSecondsAfterFinished: 999999
+          # Ressources : les presets `deploymentSize: small` du chart réservent
+          # requests = limits (QoS Guaranteed), soit ~5,75 CPU / ~4,3 Gi pour un
+          # plan de contrôle quasi inactif en homelab. On réserve le minimum
+          # (requests basses) et on garde des limits pour absorber les pics.
+          database:
+            storage:
+              storageClassName: longhorn
+            resources:
+              requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 50Mi }
+              limits: { cpu: "1", memory: 1Gi, ephemeral-storage: 2Gi }
           components:
+            api:
+              resources:
+                requests: { cpu: 100m, memory: 384Mi, ephemeral-storage: 50Mi }
+                limits: { cpu: "1", memory: 1Gi, ephemeral-storage: 2Gi }
+            manager:
+              resources:
+                requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 50Mi }
+                limits: { cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi }
+            proxy:
+              resources:
+                requests: { cpu: 50m, memory: 128Mi, ephemeral-storage: 50Mi }
+                limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi }
             guac:
               recordingData:
                 storageClassName: longhorn
+              resources:
+                requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 50Mi }
+                limits: { cpu: "1", memory: 1Gi, ephemeral-storage: 2Gi }
+              nginxSidecar:
+                resources:
+                  requests: { cpu: 10m, memory: 32Mi }
+                  limits: { cpu: 250m, memory: 128Mi }
+            rdpGateway:
+              resources:
+                requests: { cpu: 25m, memory: 128Mi, ephemeral-storage: 50Mi }
+                limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi }
+              nginxSidecar:
+                resources:
+                  requests: { cpu: 10m, memory: 32Mi }
+                  limits: { cpu: 250m, memory: 128Mi }
+            rdpHttpsGateway:
+              resources:
+                requests: { cpu: 25m, memory: 128Mi, ephemeral-storage: 50Mi }
+                limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi }
+              nginxSidecar:
+                resources:
+                  requests: { cpu: 10m, memory: 32Mi }
+                  limits: { cpu: 250m, memory: 128Mi }
           imagePullPolicy: IfNotPresent
     - repoURL: https://github.com/ekozan/agrocd-home.git
       targetRevision: main
