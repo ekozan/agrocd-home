@@ -61,6 +61,18 @@ spec:
           database:
             storage:
               storageClassName: longhorn
+            # Le preset `deploymentSize: small` (dimensionné pour 10-15 sessions)
+            # réserve 750m CPU pour la base et 500m pour l'API, soit 1,25 cœur
+            # pour un plan de contrôle quasi inactif (les sessions tournent sur
+            # des Docker Agents externes). Surcharge explicite (remplace le
+            # preset) : petite request, pas de limite CPU (cf.
+            # init/resource-policies), limite mémoire confortable.
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
           dbManagement:
             # Le chart supprime le Job db-init après ce délai (défaut 300 s) et
             # ArgoCD (selfHeal) le recréerait aussitôt → délai allongé (~11 j).
@@ -69,6 +81,13 @@ spec:
             # vérifie que la base est déjà initialisée et sort).
             initJobTTLSecondsAfterFinished: 999999
           components:
+            api:
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 384Mi
+                limits:
+                  memory: 1Gi
             guac:
               recordingData:
                 storageClassName: longhorn
