@@ -14,9 +14,19 @@ spec:
   isCA: true
   commonName: selfsigned-ca
   secretName: root-secret
+  # CA longue durée : sans `duration`, cert-manager émet 90 jours et la
+  # renouvelle tous les ~60 jours, mais ne réémet PAS les certificats qu'elle
+  # a signés. Leur `ca.crt` devient alors une CA expirée (CNPG pg-main
+  # bloqué : "failed to verify certificate: x509: certificate has expired").
+  # La CA doit toujours vivre bien plus longtemps que ses certificats feuilles.
+  duration: 87600h0m0s    # 10 ans
+  renewBefore: 720h0m0s   # 30 jours
   privateKey:
     algorithm: ECDSA
     size: 256
+    # Garder la même clé au renouvellement : les certificats déjà émis
+    # restent vérifiables avec la CA renouvelée.
+    rotationPolicy: Never
   issuerRef:
     name: selfsigned-issuer
     kind: ClusterIssuer
