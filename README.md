@@ -333,15 +333,14 @@ Le LAPI n'étant plus dans le cluster, quatre réglages sont à faire **une fois
          login_password: 7d
    ```
 
-3. **Bouncer Traefik et UI** :
+3. **Bouncer Traefik** (l'UI, elle, s'auto-enregistre comme les agents grâce à l'étape 2) :
    ```bash
    # sur le cluster
    kubectl -n crowdsec get secret crowdsec-bouncer-key -o jsonpath='{.data.apiKey}' | base64 -d
-   kubectl -n crowdsec get secret crowdsec-web-ui-credentials -o jsonpath='{.data.password}' | base64 -d
    # sur l'OPNsense
    cscli bouncers add traefik-bouncer --key '<apiKey>'
-   cscli machines add crowdsec-web-ui --password '<password>' --force -f /dev/null
    ```
+   Le plugin Traefik ne relit pas `crowdsecLapiHost` à chaud : après un changement d'hôte LAPI, redémarrer Traefik (`kubectl -n traefik rollout restart deploy/traefik3`).
 
 4. **Profils de remédiation** — dans `/usr/local/etc/crowdsec/profiles.yaml` sur l'OPNsense (ban long pour le brute-force d'auth détecté par le scénario `custom/http-401-bf`, avant le profil par défaut) :
    ```yaml
@@ -457,9 +456,9 @@ spec:
           namespace: traefik
 ```
 
-**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `infra/crowdsec-ui/`, déployée par l'App ArgoCD `infra/09-crowdsec-ui.yaml`) interroge le LAPI local pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16` + pairs NetBird `100.64.0.0/10`).
+**UI web locale (`crowdsec-web-ui`)** : une interface auto-hébergée ([TheDuffman85/crowdsec-web-ui](https://github.com/TheDuffman85/crowdsec-web-ui), `infra/crowdsec-ui/`, déployée par l'App ArgoCD `infra/09-crowdsec-ui.yaml`) interroge le LAPI (OPNsense) pour visualiser et gérer alertes/décisions, sans envoyer de données à un SaaS. Elle est exposée sur `https://crowdsec.ffd.link` mais **restreinte au LAN** : l'appli n'a pas d'authentification intégrée, on la protège donc par les middlewares `crowdsec` (bouncer + AppSec) **et** `local-only` (réseaux `10.10.0.0/16` / `10.5.0.0/16` + pairs NetBird `100.64.0.0/10`).
 
-Connexion au LAPI via un **compte machine** `crowdsec-web-ui` enregistré par le Job `crowdsec-ui-register` (ressource ArgoCD en `sync-wave 1`, exécutée **avant** le Deployment afin que le Secret existe quand le pod le monte — un hook `PostSync` provoquerait un interblocage). Le mot de passe est généré **une seule fois** dans le Secret `crowdsec-web-ui-credentials` (render déterministe, compatible `selfHeal`). Le cache SQLite de l'UI est persisté sur un PVC Longhorn (`/app/data`). Une NetworkPolicy dédiée autorise les pods Traefik à joindre l'UI sur le port `3000` (le namespace `crowdsec` étant en `default-deny-ingress`).
+Connexion au LAPI via un **compte machine** `crowdsec-web-ui` auto-enregistré sur l'OPNsense (`POST /v1/watchers` + `registrationToken`) par le Job `crowdsec-ui-register` (ressource ArgoCD en `sync-wave 1`, exécutée **avant** le Deployment afin que le Secret existe quand le pod le monte — un hook `PostSync` provoquerait un interblocage). Le mot de passe est généré **une seule fois** dans le Secret `crowdsec-web-ui-credentials` (render déterministe, compatible `selfHeal`). Le cache SQLite de l'UI est persisté sur un PVC Longhorn (`/app/data`). Une NetworkPolicy dédiée autorise les pods Traefik à joindre l'UI sur le port `3000` (le namespace `crowdsec` étant en `default-deny-ingress`).
 
 **Administration (CLI)** : pour les opérations non couvertes par l'UI, tout reste gérable via `cscli` dans le pod LAPI.
 

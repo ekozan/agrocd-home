@@ -9,10 +9,10 @@
 #
 # Connexion au LAPI : compte machine `crowdsec-web-ui`. Le Job
 # `crowdsec-ui-register` génère UNE FOIS un mot de passe stable dans le Secret
-# crowdsec-web-ui-credentials (render déterministe, pas de churn sous selfHeal).
-# Le LAPI étant hors cluster, la machine est déclarée une fois sur l'OPNsense
-# avec ce mot de passe (cscli machines add crowdsec-web-ui --password …, cf.
-# README « CrowdSec — LAPI sur OPNsense »).
+# crowdsec-web-ui-credentials (render déterministe, pas de churn sous selfHeal)
+# puis auto-enregistre la machine sur le LAPI d'OPNsense (POST /v1/watchers avec
+# le registrationToken, le même que les agents → validée d'office via
+# api.server.auto_registration, cf. README « CrowdSec — LAPI sur OPNsense »).
 ---
 # Compte de service du Job d'enregistrement de la machine
 apiVersion: v1
@@ -23,7 +23,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---
-# Droits : gérer le Secret credentials
+# Droits : gérer le Secret credentials, lire le registrationToken
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -52,7 +52,8 @@ subjects:
     name: crowdsec-ui-register
     namespace: crowdsec
 ---
-# Job de génération (une seule fois) du mot de passe machine de l'UI.
+# Job de génération (une seule fois) du mot de passe machine de l'UI et
+# d'auto-enregistrement de la machine sur le LAPI (OPNsense).
 # Ressource NORMALE en wave 1 (PAS un hook PostSync) : ArgoCD attend qu'elle
 # soit Complete avant d'appliquer le Deployment (wave 2), garantissant que le
 # Secret crowdsec-web-ui-credentials existe AVANT que le pod UI le monte. Un
@@ -109,18 +110,37 @@ spec:
             - |
               set -eu
 
+              LAPI_URL=http://10.5.0.1:8080
+
               # Mot de passe STABLE : généré une seule fois, jamais rotationné
-              if kubectl -n crowdsec get secret crowdsec-web-ui-credentials >/dev/null 2>&1; then
-                echo "Secret crowdsec-web-ui-credentials déjà présent — rien à faire."
+              PW=$(kubectl -n crowdsec get secret crowdsec-web-ui-credentials \
+                -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+              if [ -z "${PW}" ]; then
+                PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+                kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
+                  --from-literal=password="${PW}"
+                echo "Mot de passe UI généré (stable)."
+              fi
+
+              # Login OK avec le mot de passe stable → machine déjà en place.
+              if wget -q -O /dev/null --header 'Content-Type: application/json' \
+                   --post-data "{\"machine_id\":\"crowdsec-web-ui\",\"password\":\"${PW}\"}" \
+                   "${LAPI_URL}/v1/watchers/login"; then
+                echo "Machine 'crowdsec-web-ui' déjà enregistrée sur le LAPI — rien à faire."
                 exit 0
               fi
-              PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
-              kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
-                --from-literal=password="${PW}"
-              echo "Mot de passe UI généré (stable)."
-              # Le LAPI (OPNsense) doit porter CE mot de passe : à déclarer une
-              # fois sur le pare-feu, sinon l'UI prend des 403.
-              echo "Sur l'OPNsense : cscli machines add crowdsec-web-ui --password <crowdsec/crowdsec-web-ui-credentials:password> --force -f /dev/null"
+
+              # Sinon auto-enregistrement (comme les agents) : validée d'office
+              # si l'IP source (nœud) est dans auto_registration.allowed_ranges.
+              # Échoue si la machine existe déjà avec un AUTRE mot de passe
+              # (Secret régénéré) : la supprimer sur l'OPNsense
+              # (cscli machines delete crowdsec-web-ui) puis relancer la sync.
+              TOKEN=$(kubectl -n crowdsec get secret crowdsec-lapi-secrets \
+                -o jsonpath='{.data.registrationToken}' | base64 -d)
+              wget -q -O /dev/null --header 'Content-Type: application/json' \
+                --post-data "{\"machine_id\":\"crowdsec-web-ui\",\"password\":\"${PW}\",\"registration_token\":\"${TOKEN}\"}" \
+                "${LAPI_URL}/v1/watchers"
+              echo "Machine 'crowdsec-web-ui' auto-enregistrée sur le LAPI (OPNsense)."
       volumes:
         - name: tmp
           emptyDir: {}
