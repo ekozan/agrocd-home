@@ -102,7 +102,18 @@ spec:
           externalSecret:
             name: crowdsec-lapi-secrets
         # API locale (LAPI) : centralise les décisions, interrogée par le bouncer Traefik
+        # Requests : les défauts du chart (500m CPU, limite CPU = request) pour
+        # lapi, agent et appsec réservaient ~2,5 cœurs (agent ×3 nœuds) pour une
+        # conso réelle de quelques dizaines de millicores. Pas de limite CPU
+        # (cf. init/resource-policies : le throttling bridait l'AppSec, sur le
+        # chemin de chaque requête HTTP) ; limites mémoire conservées.
         lapi:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 500Mi
           # Persistance des décisions et des clés bouncers enregistrées
           persistentVolume:
             data:
@@ -110,6 +121,12 @@ spec:
               size: 1Gi
         appsec:
           enabled: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              memory: 500Mi
           # ⚠️ Les configs/règles AppSec vont sous `appsec.configs` / `appsec.rules`
           # (PAS sous `config.*`, qui ne les monte pas dans le composant AppSec).
           # On s'appuie sur les packs WAF TOUT-FAITS du hub CrowdSec (installés
@@ -242,9 +259,15 @@ spec:
         agent:
           # DaemonSet sur TOUS les nœuds → l'agent est co-localisé avec Traefik
           # où qu'il tourne (il lit ses access logs via hostPath /var/log du nœud).
-          # Prérequis : que le pod agent puisse se scheduler partout — d'où la
-          # baisse des requests CPU sur-dimensionnées (cf. Coder) qui saturaient
-          # kube2 et laissaient l'agent Pending.
+          # Prérequis : que le pod agent puisse se scheduler partout → requests
+          # minimales (DaemonSet : la réservation est multipliée par le nombre
+          # de nœuds).
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 250Mi
           # Collections de parsers/scénarios installées au démarrage
           env:
             - name: COLLECTIONS
