@@ -152,9 +152,13 @@ spec:
               path: /healthcheck
               port: 80
             periodSeconds: 30
+          # Request CPU = conso au repos (édition/conversion ponctuelles :
+          # le pod burste jusqu'à la limite). 500m réservés en permanence
+          # bloquaient le scheduling sur des nœuds de 4 cœurs. Mémoire
+          # inchangée : le document server pèse ~1Gi au repos.
           resources:
             requests:
-              cpu: 500m
+              cpu: 150m
               memory: 1Gi
             limits:
               cpu: "2"
