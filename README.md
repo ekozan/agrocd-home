@@ -340,7 +340,7 @@ Le LAPI n'étant plus dans le cluster, quatre réglages sont à faire **une fois
    # sur l'OPNsense
    cscli bouncers add traefik-bouncer --key '<apiKey>'
    ```
-   Le plugin Traefik ne relit pas `crowdsecLapiHost` à chaud : après un changement d'hôte LAPI, redémarrer Traefik (`kubectl -n traefik rollout restart deploy/traefik3`).
+   Le plugin Traefik ne relit pas `crowdsecLapiHost` à chaud : après un changement d'hôte LAPI, redémarrer Traefik (`kubectl -n traefik rollout restart ds/traefik3`).
 
 4. **Profils de remédiation** — dans `/usr/local/etc/crowdsec/profiles.yaml` sur l'OPNsense (ban long pour le brute-force d'auth détecté par le scénario `custom/http-401-bf`, avant le profil par défaut) :
    ```yaml
