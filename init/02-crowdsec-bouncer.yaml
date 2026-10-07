@@ -1,7 +1,10 @@
-# Auto-enregistrement du bouncer Traefik auprès du LAPI CrowdSec.
+# Clé du bouncer Traefik CrowdSec.
 #
-# Ce Job génère (une seule fois) une clé stable, l'enregistre auprès du LAPI
-# (cscli bouncers add) et la publie dans le Secret traefik/crowdsec-bouncer-key.
+# Ce Job génère (une seule fois) une clé stable et la publie dans le Secret
+# traefik/crowdsec-bouncer-key. Le LAPI étant hébergé sur le pare-feu OPNsense
+# (hors cluster), le Job ne peut plus l'y enregistrer lui-même : la clé est
+# déclarée UNE FOIS sur l'OPNsense (cscli bouncers add traefik-bouncer --key …,
+# cf. README « CrowdSec — LAPI sur OPNsense »).
 # Les Middlewares qui la consomment sont, eux, déclarés dans Git
 # (03-traefik-middlewares.yaml) : ils ne dépendent plus de l'exécution du Job
 # pour exister (auparavant créés ici par kubectl apply, hors Git, ils n'étaient
@@ -114,19 +117,13 @@ metadata:
   name: crowdsec-bouncer-register
   namespace: crowdsec
 ---
-# Droits côté CrowdSec : lire les pods et exec cscli dans le pod LAPI
+# Droits côté CrowdSec : lire/créer le Secret source de la clé
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: crowdsec-bouncer-register
   namespace: crowdsec
 rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create"]
@@ -181,8 +178,7 @@ metadata:
   name: crowdsec-bouncer-register
   namespace: crowdsec
   annotations:
-    # Hook de phase Sync, wave 2 : rejoué à chaque sync, APRÈS le LAPI
-    # (Application crowdsec, wave 1) et AVANT les Middlewares crowdsec*
+    # Hook de phase Sync, wave 2 : rejoué à chaque sync, AVANT les Middlewares crowdsec*
     # (wave 3) qui lisent le Secret traefik/crowdsec-bouncer-key. En PostSync,
     # les Middlewares pointaient vers un Secret pas encore créé → routes en
     # erreur jusqu'à la fin de la sync. Supprimé si succès.
@@ -222,14 +218,6 @@ spec:
           args: 
             - |
               set -eu
-              echo "Attente du LAPI CrowdSec..."
-              kubectl -n crowdsec wait --for=condition=ready pod \
-                -l type=lapi --timeout=300s
-
-              LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
-                -o jsonpath='{.items[0].metadata.name}')
-              echo "Pod LAPI : ${LAPI_POD}"
-
               # Clé STABLE du bouncer : générée une seule fois, jamais rotationnée
               KEY=$(kubectl -n crowdsec get secret crowdsec-bouncer-key \
                 -o jsonpath='{.data.apiKey}' 2>/dev/null | base64 -d 2>/dev/null || true)
@@ -240,13 +228,9 @@ spec:
                 echo "Clé bouncer générée (stable)."
               fi
 
-              # (Ré)enregistre le bouncer avec CETTE clé stable -> middleware et
-              # LAPI portent toujours la même clé (auto-réparation, pas de 403)
-              kubectl -n crowdsec exec "${LAPI_POD}" -- \
-                cscli bouncers delete traefik-bouncer >/dev/null 2>&1 || true
-              kubectl -n crowdsec exec "${LAPI_POD}" -- \
-                cscli bouncers add traefik-bouncer --key "${KEY}" >/dev/null
-              echo "Bouncer 'traefik-bouncer' enregistré avec la clé stable."
+              # Le LAPI (OPNsense) doit porter CETTE clé : à déclarer une fois
+              # sur le pare-feu, sinon le bouncer prend des 403.
+              echo "Sur l'OPNsense : cscli bouncers add traefik-bouncer --key <crowdsec/crowdsec-bouncer-key:apiKey>"
 
               # Les Middlewares crowdsec / crowdsec-largebody sont déclarés dans
               # Git (03-traefik-middlewares.yaml) et lisent la clé via
