@@ -1,15 +1,18 @@
 # UI web locale pour CrowdSec — crowdsec-web-ui (TheDuffman85).
 #
-# Interface auto-hébergée qui interroge le LAPI local (alertes, décisions,
+# Interface auto-hébergée qui interroge le LAPI (hébergé sur le pare-feu
+# OPNsense, 10.5.0.1:8080) pour les alertes, décisions,
 # métriques) via un compte machine. AUCUNE donnée n'est envoyée à un SaaS
 # (contrairement à l'enrôlement Console). L'appli n'embarque PAS d'auth : elle
 # est exposée derrière Traefik et protégée par les middlewares `crowdsec`
 # (bouncer + AppSec) et `local-only` (réseaux LAN uniquement).
 #
-# Connexion au LAPI : compte machine `crowdsec-web-ui` enregistré au runtime par
-# le Job `crowdsec-ui-register` (cscli, même principe que le bouncer). Le mot de
-# passe est STABLE (généré une seule fois, stocké dans le Secret
-# crowdsec-web-ui-credentials) → render déterministe, pas de churn sous selfHeal.
+# Connexion au LAPI : compte machine `crowdsec-web-ui`. Le Job
+# `crowdsec-ui-register` génère UNE FOIS un mot de passe stable dans le Secret
+# crowdsec-web-ui-credentials (render déterministe, pas de churn sous selfHeal).
+# Le LAPI étant hors cluster, la machine est déclarée une fois sur l'OPNsense
+# avec ce mot de passe (cscli machines add crowdsec-web-ui --password …, cf.
+# README « CrowdSec — LAPI sur OPNsense »).
 ---
 # Compte de service du Job d'enregistrement de la machine
 apiVersion: v1
@@ -20,7 +23,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---
-# Droits : lire les pods + exec cscli dans le LAPI, gérer le Secret credentials
+# Droits : gérer le Secret credentials
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -29,12 +32,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create"]
@@ -55,7 +52,7 @@ subjects:
     name: crowdsec-ui-register
     namespace: crowdsec
 ---
-# Job d'enregistrement/auto-réparation du compte machine de l'UI.
+# Job de génération (une seule fois) du mot de passe machine de l'UI.
 # Ressource NORMALE en wave 1 (PAS un hook PostSync) : ArgoCD attend qu'elle
 # soit Complete avant d'appliquer le Deployment (wave 2), garantissant que le
 # Secret crowdsec-web-ui-credentials existe AVANT que le pod UI le monte. Un
@@ -111,45 +108,19 @@ spec:
           args:
             - |
               set -eu
-              echo "Attente du LAPI CrowdSec..."
-              kubectl -n crowdsec wait --for=condition=ready pod \
-                -l type=lapi --timeout=300s
-
-              LAPI_POD=$(kubectl -n crowdsec get pod -l type=lapi \
-                -o jsonpath='{.items[0].metadata.name}')
-              echo "Pod LAPI : ${LAPI_POD}"
 
               # Mot de passe STABLE : généré une seule fois, jamais rotationné
-              PW_IS_NEW=0
-              PW=$(kubectl -n crowdsec get secret crowdsec-web-ui-credentials \
-                -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
-              if [ -z "${PW}" ]; then
-                PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
-                kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
-                  --from-literal=password="${PW}"
-                PW_IS_NEW=1
-                echo "Mot de passe UI généré (stable)."
+              if kubectl -n crowdsec get secret crowdsec-web-ui-credentials >/dev/null 2>&1; then
+                echo "Secret crowdsec-web-ui-credentials déjà présent — rien à faire."
+                exit 0
               fi
-
-              # Enregistre la machine SI ELLE N'EXISTE PAS encore — on ne veut PAS
-              # supprimer/re-créer la machine à chaque sync (cela couperait
-              # brièvement la session LAPI de l'UI). Le mot de passe étant stable,
-              # un "add if missing" suffit dans le cas nominal.
-              # Exception : si le Secret vient d'être (re)généré alors que la
-              # machine existe déjà (Secret supprimé à la main, namespace recréé),
-              # les deux côtés divergent et l'UI prend des 403. On resynchronise
-              # alors le mot de passe côté LAPI avec --force (mise à jour en place,
-              # pas de suppression).
-              # -f /dev/null : on n'écrit pas de fichier credentials (l'UI lit l'env).
-              if [ "${PW_IS_NEW}" = "0" ] && kubectl -n crowdsec exec "${LAPI_POD}" -- \
-                   cscli machines list -o json 2>/dev/null \
-                   | grep -q '"machineId": *"crowdsec-web-ui"'; then
-                echo "Machine 'crowdsec-web-ui' déjà enregistrée — rien à faire."
-              else
-                kubectl -n crowdsec exec "${LAPI_POD}" -- \
-                  cscli machines add crowdsec-web-ui --password "${PW}" --force -f /dev/null
-                echo "Machine 'crowdsec-web-ui' enregistrée avec le mot de passe stable."
-              fi
+              PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+              kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
+                --from-literal=password="${PW}"
+              echo "Mot de passe UI généré (stable)."
+              # Le LAPI (OPNsense) doit porter CE mot de passe : à déclarer une
+              # fois sur le pare-feu, sinon l'UI prend des 403.
+              echo "Sur l'OPNsense : cscli machines add crowdsec-web-ui --password <crowdsec/crowdsec-web-ui-credentials:password> --force -f /dev/null"
       volumes:
         - name: tmp
           emptyDir: {}
@@ -209,9 +180,9 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            # LAPI local (service du chart CrowdSec)
+            # LAPI hébergé sur le pare-feu OPNsense
             - name: CROWDSEC_URL
-              value: http://crowdsec-service.crowdsec.svc.cluster.local:8080
+              value: http://10.5.0.1:8080
             - name: CROWDSEC_USER
               value: crowdsec-web-ui
             - name: CROWDSEC_PASSWORD
@@ -301,8 +272,8 @@ spec:
         - crowdsec.ffd.link
 ---
 # Le namespace crowdsec applique un default-deny-ingress (cf.
-# infra/network-policies/crowdsec.yaml). L'allow existant n'ouvre que le LAPI
-# (8080/7422) ; on autorise donc explicitement les pods Traefik à joindre l'UI
+# infra/network-policies/crowdsec.yaml). L'allow existant n'ouvre que l'AppSec
+# (7422) ; on autorise donc explicitement les pods Traefik à joindre l'UI
 # sur le port 3000, sinon l'Ingress renverrait un 502.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

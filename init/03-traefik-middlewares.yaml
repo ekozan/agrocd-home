@@ -20,6 +20,10 @@
 # Middleware), Secret alimenté par le Job crowdsec-bouncer-register (hook Sync
 # wave 2, donc toujours AVANT ces Middlewares en wave 3).
 #
+# LAPI : hébergé sur le pare-feu OPNsense (10.5.0.1:8080, plugin os-crowdsec),
+# où le bouncer `traefik-bouncer` doit être déclaré avec la même clé (cf. README).
+# L'AppSec (WAF), lui, reste dans le cluster.
+#
 # Stream LAPI (mode stream) :
 #  - httpTimeoutSeconds (défaut 10) : le GET /v1/decisions/stream?startup=true
 #    renvoie TOUTES les décisions (blocklists communautaires/Console incluses) et
@@ -55,7 +59,7 @@ spec:
       updateIntervalSeconds: "60"
       updateMaxFailure: "-1"
       crowdsecLapiScheme: http
-      crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+      crowdsecLapiHost: 10.5.0.1:8080
       crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-key:apiKey"
       crowdsecAppsecEnabled: "true"
       crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
@@ -89,7 +93,7 @@ spec:
       updateIntervalSeconds: "60"
       updateMaxFailure: "-1"
       crowdsecLapiScheme: http
-      crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+      crowdsecLapiHost: 10.5.0.1:8080
       crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-key:apiKey"
       crowdsecAppsecEnabled: "true"
       crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422

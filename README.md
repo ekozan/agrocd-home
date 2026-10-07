@@ -136,8 +136,8 @@ agrocd-home/
 ├── init/
 │   ├── 00-traefik3.yaml          # Ingress controller Traefik 3 (+ plugin CrowdSec)
 │   ├── 01-crowdsec-secret.yaml   # Job generate-once du secret LAPI (déterministe)
-│   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + LAPI)
-│   ├── 02-crowdsec-bouncer.yaml  # Job d'enregistrement du bouncer + Middleware
+│   ├── 01-crowdsec.yaml          # Moteur CrowdSec (agent + AppSec ; LAPI sur OPNsense)
+│   ├── 02-crowdsec-bouncer.yaml  # Job generate-once de la clé bouncer + page de ban
 │   ├── 03-traefik-middlewares.yaml # Middlewares local-only (ipAllowList) + oidc-auth
 │   ├── 12-resource-policies.yaml # App ArgoCD → ./init/resource-policies
 │   ├── resource-policies/        # LimitRanges (requests/limits par défaut) + PriorityClasses (éviction)
@@ -303,15 +303,75 @@ config des applications ne sont pas modifiées.**
 
 ## Protection CrowdSec
 
-CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et maintient les décisions de blocage dans le **LAPI**. Le **plugin bouncer** (`crowdsec-bouncer-traefik-plugin` v1.6.0) interroge le LAPI directement depuis Traefik (mode `stream`) pour autoriser ou bloquer les IP.
+CrowdSec analyse les **access logs Traefik** (agent DaemonSet) et remonte ses alertes au **LAPI, hébergé sur le pare-feu OPNsense** (plugin `os-crowdsec`, `10.5.0.1:8080`) qui centralise les décisions de blocage — appliquées aussi au niveau pare-feu par le bouncer OPNsense. Le **plugin bouncer** Traefik (`crowdsec-bouncer-traefik-plugin` v1.6.0) interroge ce LAPI (mode `stream`) pour autoriser ou bloquer les IP. L'**AppSec** (WAF) reste dans le cluster, au plus près de Traefik.
 
-**Enregistrement de la clé (auto, runtime)** : le LAPI génère la clé API du bouncer. Le Job `crowdsec-bouncer-register` (hook ArgoCD `PostSync`) la récupère via `cscli` puis crée le Middleware `traefik/crowdsec` porteur de la clé. Le Middleware est créé au runtime (hors git) pour ne pas exposer la clé dans le dépôt ni entrer en conflit avec le self-heal.
+**Clé du bouncer (generate-once)** : le Job `crowdsec-bouncer-register` génère une clé stable (Secret `crowdsec/crowdsec-bouncer-key`) et la publie dans `traefik/crowdsec-bouncer-key`, lu par les Middlewares déclarés dans `init/03-traefik-middlewares.yaml`. La clé est déclarée une fois sur l'OPNsense (voir ci-dessous).
+
+### CrowdSec — LAPI sur OPNsense
+
+Le LAPI n'étant plus dans le cluster, quatre réglages sont à faire **une fois** sur l'OPNsense (`10.5.0.1` ; à adapter ici et dans `init/01-crowdsec.yaml`, `init/03-traefik-middlewares.yaml` et `infra/crowdsec-ui/crowdsec-ui.yaml` si l'adresse diffère).
+
+1. **Écoute du LAPI** — *Services → CrowdSec → Settings* : activer le LAPI et le faire écouter sur `10.5.0.1:8080` (et non `127.0.0.1`). Règle pare-feu : autoriser le sous-réseau des nœuds Kubernetes vers `10.5.0.1:8080/TCP`.
+
+2. **Auto-enregistrement des agents** — l'agent (un pod par nœud, nom = nom du pod) et l'AppSec s'enregistrent au démarrage avec le jeton `registrationToken`. Récupérer le jeton :
+   ```bash
+   kubectl -n crowdsec get secret crowdsec-lapi-secrets -o jsonpath='{.data.registrationToken}' | base64 -d
+   ```
+   puis, sur l'OPNsense, dans `/usr/local/etc/crowdsec/config.yaml.local` (fusionné par CrowdSec avec `config.yaml`, non écrasé par le plugin) :
+   ```yaml
+   api:
+     server:
+       auto_registration:
+         enabled: true
+         token: "<registrationToken>"
+         allowed_ranges:
+           - "10.5.0.0/16"   # sous-réseau des nœuds Kubernetes (IP source vue par l'OPNsense)
+   db_config:
+     flush:
+       # Chaque redémarrage de pod agent crée une nouvelle machine : purge des inactives
+       agents_autodelete:
+         login_password: 7d
+   ```
+
+3. **Bouncer Traefik et UI** :
+   ```bash
+   # sur le cluster
+   kubectl -n crowdsec get secret crowdsec-bouncer-key -o jsonpath='{.data.apiKey}' | base64 -d
+   kubectl -n crowdsec get secret crowdsec-web-ui-credentials -o jsonpath='{.data.password}' | base64 -d
+   # sur l'OPNsense
+   cscli bouncers add traefik-bouncer --key '<apiKey>'
+   cscli machines add crowdsec-web-ui --password '<password>' --force -f /dev/null
+   ```
+
+4. **Profils de remédiation** — dans `/usr/local/etc/crowdsec/profiles.yaml` sur l'OPNsense (ban long pour le brute-force d'auth détecté par le scénario `custom/http-401-bf`, avant le profil par défaut) :
+   ```yaml
+   name: bruteforce_ban
+   filters:
+     - Alert.Remediation == true && Alert.GetScenario() == "custom/http-401-bf"
+   decisions:
+     - type: ban
+       duration: 12h
+   on_success: break
+   ---
+   name: default_ip_remediation
+   filters:
+     - Alert.Remediation == true && Alert.GetScope() == "Ip"
+   decisions:
+     - type: ban
+       duration: 4h
+   on_success: break
+   ```
+   Puis redémarrer CrowdSec sur l'OPNsense. Vérifier : `cscli machines list` (agents + AppSec + UI) et `cscli bouncers list` (`traefik-bouncer` avec un *last pull* récent).
+
+> Les whitelists (NetBird, Matrix, OxiCloud/Euro-Office) sont des parsers **côté agent** : elles restent dans `init/01-crowdsec.yaml` et filtrent avant tout envoi au LAPI.
+>
+> ⚠️ Le trafic cluster → LAPI est en HTTP clair sur le LAN (jeton, clé bouncer, mot de passe UI). Acceptable sur un segment de confiance ; sinon activer TLS sur le LAPI OPNsense et passer les URL en `https://`.
 
 **Page de blocage personnalisée (ban IP + AppSec)** : les requêtes bloquées reçoivent une page HTML (`banHTMLFilePath`) au lieu d'un 403 brut. La page est définie dans le ConfigMap `crowdsec-ban-page` (`init/02-crowdsec-bouncer.yaml`), montée dans les pods Traefik via les `volumes` du chart (`init/00-traefik3.yaml`) sous `/etc/traefik/crowdsec/ban.html`.
 
 Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu comme un **template Go** recevant `{{ .RemediationReason }}` (`LAPI` = ban IP, `APPSEC` = blocage WAF) et `{{ .ClientIP }}`. La page branche donc l'affichage pour montrer un message distinct selon l'origine du blocage (un second fichier ne serait jamais servi par le plugin). Modifier le ConfigMap suffit à changer la page (penser à recharger les pods Traefik).
 
-**Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render, mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
+**Secret LAPI déterministe** : le chart randomise `registrationToken` / `csLapiSecret` à chaque render (seul `registrationToken` sert encore, pour l'auto-enregistrement auprès de l'OPNsense), mais sous ArgoCD (`helm template` sans accès cluster) son `lookup` de stabilisation renvoie vide → churn permanent. Le Job `crowdsec-lapi-secret-gen` (wave 0, idempotent) génère ces valeurs **une seule fois** dans le Secret `crowdsec-lapi-secrets`, référencé par le chart via `secrets.externalSecret.name`. Le render redevient déterministe → `selfHeal: true` peut rester actif sans rotation intempestive des credentials.
 
 **Couverture** : le middleware est appliqué sur **toutes les routes publiques** exposées par Traefik.
 
