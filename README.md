@@ -181,7 +181,6 @@ agrocd-home/
 │   ├── kasm.yaml             # App ArgoCD multi-source : chart Helm kasm-helm + ./dev/kasm
 │   ├── kasm/                 # Job keygen du Secret kasm-secrets
 │   ├── disabled/coder.yaml   # Coder désactivé (sous-dossier non synchronisé par l'app `dev`)
-│   ├── coder-db.yaml
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
 │
@@ -294,8 +293,11 @@ config des applications ne sont pas modifiées.**
      (construire l'URL depuis `coder-db`).
    - **LiteLLM** (`dev/litellm.yaml`) → base externe `litellm` (désactiver le
      PostgreSQL embarqué du chart).
-3. **Supprimer** les anciennes instances : `infra/04 zitadel db.yaml`,
-   `dev/coder-db.yaml`, et les sous-charts `postgresql` de Gitea/LiteLLM.
+3. **Supprimer** les anciennes instances : `infra/04 zitadel db.yaml`
+   et les sous-charts `postgresql` de Gitea/LiteLLM (`dev/coder-db.yaml` est
+   déjà retiré : Coder étant désactivé, son PostgreSQL ne servait plus ; le PVC
+   `data-postgresql-0` du namespace `coder` est conservé tant qu'il n'est pas
+   supprimé à la main, ce qui permet encore la migration `02-coder.yaml`).
    ⚠️ Le `prune` ArgoCD est actif : supprimer ces fichiers détruit les anciens
    PostgreSQL — ne le faire qu'**après** validation de la migration.
 
