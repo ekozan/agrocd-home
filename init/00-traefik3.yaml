@@ -16,6 +16,15 @@ spec:
     helm:
       releaseName: traefik3
       valuesObject:
+        # Un pod Traefik par nœud. Le Service est en externalTrafficPolicy:
+        # Local → un nœud n'annonce l'IP du LoadBalancer en BGP (OPNsense) QUE
+        # s'il héberge un pod Traefik. En Deployment (1-2 replicas), seule une
+        # partie des nœuds annonçait l'IP (IPv6 via KubeMaster2 seulement) :
+        # aucune redondance si ce nœud tombe. En DaemonSet, les 3 nœuds
+        # annoncent et le trafic se répartit en ECMP. Les pods restent nommés
+        # traefik3-* (acquisition de l'agent CrowdSec inchangée).
+        deployment:
+          kind: DaemonSet
         # Logs d'accès requis pour que l'agent CrowdSec parse le trafic.
         # ⚠️ Chart >= 41 : `logs.access.*` est devenu `accessLog.*` (BREAKING
         # CHANGE traefik-helm-chart#1887). Le schéma du chart refuse toute clé
