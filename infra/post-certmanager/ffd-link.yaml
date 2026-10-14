@@ -17,7 +17,6 @@ spec:
   dnsNames:
     - "ffd.link"
     - "*.ffd.link"
-    - "proxy.ffd.link"
     - "*.proxy.ffd.link"
   secretTemplate:
     annotations:
