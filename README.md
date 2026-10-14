@@ -35,7 +35,8 @@ Kubernetes Cluster
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
-| NetBird (dashboard, management, signal, relay) | `https://netbird.ffd.link` |
+| NetBird (production, release Helm hors Git) | `https://netbird.ffd.link` |
+| NetBird (test, ArgoCD) | `https://netbird2.ffd.link` |
 | Reverse proxy NetBird | `https://*.proxy.ffd.link` (TLS passthrough Traefik) |
 
 ---
@@ -122,7 +123,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
-| `13` | NetBird + reverse proxy (`netbird.ffd.link`, `*.proxy.ffd.link`) |
+| `13` | NetBird de test + reverse proxy (`netbird2.ffd.link`, `*.proxy.ffd.link`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -180,7 +181,7 @@ agrocd-home/
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
 │   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
-│   ├── 13-netbird.yaml       # App ArgoCD → ./infra/netbird (netbird.ffd.link, *.proxy.ffd.link)
+│   ├── 13-netbird.yaml       # App ArgoCD netbird2 → ./infra/netbird (test : netbird2.ffd.link, *.proxy.ffd.link)
 │   └── netbird/              # NetBird en manifests bruts (management, signal, relay, dashboard, reverse proxy) + ExternalSecrets + README
 │
 ├── dev/
@@ -229,9 +230,9 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
-| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.80.0 | netbird |
-| NetBird dashboard | `netbirdio/dashboard` | v2.94.0 | netbird |
-| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.80.0 | netbird |
+| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.80.0 | netbird2 |
+| NetBird dashboard | `netbirdio/dashboard` | v2.94.0 | netbird2 |
+| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.80.0 | netbird2 |
 
 ---
 

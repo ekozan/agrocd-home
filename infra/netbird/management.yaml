@@ -18,7 +18,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: netbird-management
-  namespace: netbird
+  namespace: netbird2
   labels:
     app.kubernetes.io/name: netbird-management
     app.kubernetes.io/instance: netbird
@@ -48,14 +48,14 @@ data:
       },
       "Relay": {
         "Addresses": [
-          "rels://netbird.ffd.link:443/relay"
+          "rels://netbird2.ffd.link:443/relay"
         ],
         "CredentialsTTL": "24h",
         "Secret": "{{ .RELAY_PASSWORD }}"
       },
       "Signal": {
         "Proto": "https",
-        "URI": "netbird.ffd.link:443",
+        "URI": "netbird2.ffd.link:443",
         "Username": "",
         "Password": ""
       },
@@ -73,7 +73,7 @@ data:
         "IdpSignKeyRefreshEnabled": true,
         "ExtraAuthAudience": "301166482841141693",
         "AuthClientID": "301166795920835005",
-        "AuthCallbackURL": "https://netbird.ffd.link/api/reverse-proxy/callback"
+        "AuthCallbackURL": "https://netbird2.ffd.link/api/reverse-proxy/callback"
       },
       "IdpManagerConfig": {
         "ManagerType": "zitadel",
@@ -137,7 +137,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: netbird-management
-  namespace: netbird
+  namespace: netbird2
   labels:
     app.kubernetes.io/name: netbird-management
     app.kubernetes.io/instance: netbird
@@ -154,7 +154,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: netbird-management
-  namespace: netbird
+  namespace: netbird2
   labels:
     app.kubernetes.io/name: netbird-management
     app.kubernetes.io/instance: netbird
@@ -259,7 +259,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: netbird-management
-  namespace: netbird
+  namespace: netbird2
   labels:
     app.kubernetes.io/name: netbird-management
     app.kubernetes.io/instance: netbird

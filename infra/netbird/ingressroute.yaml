@@ -1,4 +1,4 @@
-# Route Traefik de netbird.ffd.link (dashboard, API, gRPC management/signal,
+# Route Traefik de netbird2.ffd.link (dashboard, API, gRPC management/signal,
 # relay). Reprise telle quelle des anciens `extraManifests` du chart. Le TLS est
 # terminé par Traefik avec le wildcard *.ffd.link ; le reverse proxy NetBird
 # (*.proxy.ffd.link, passthrough) est à part, dans proxy.yaml.
@@ -6,63 +6,63 @@ apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: netbird
-  namespace: netbird
+  namespace: netbird2
 spec:
   entryPoints:
     - websecure
   routes:
     - kind: Rule
       match: >-
-        Host(`netbird.ffd.link`) && !PathPrefix(`/api`) &&
+        Host(`netbird2.ffd.link`) && !PathPrefix(`/api`) &&
         !PathPrefix(`/management`) && !PathPrefix(`/signalexchange`) &&
         !PathPrefix(`/relay`) && !PathPrefix(`/ws-proxy`)
       services:
         - name: netbird-dashboard
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 80
     # API REST (dont /api/reverse-proxy/callback, SSO des services du proxy)
     - kind: Rule
-      match: Host(`netbird.ffd.link`) && PathPrefix(`/api`)
+      match: Host(`netbird2.ffd.link`) && PathPrefix(`/api`)
       services:
         - name: netbird-management
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 80
     - kind: Rule
-      match: Host(`netbird.ffd.link`) && PathPrefix(`/ws-proxy/management`)
+      match: Host(`netbird2.ffd.link`) && PathPrefix(`/ws-proxy/management`)
       services:
         - name: netbird-management
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 80
     - kind: Rule
-      match: Host(`netbird.ffd.link`) && PathPrefix(`/ws-proxy/signal`)
+      match: Host(`netbird2.ffd.link`) && PathPrefix(`/ws-proxy/signal`)
       services:
         - name: netbird-signal
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 80
     - kind: Rule
-      match: Host(`netbird.ffd.link`) && PathPrefix(`/relay`)
+      match: Host(`netbird2.ffd.link`) && PathPrefix(`/relay`)
       services:
         - name: netbird-relay
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 33080
     - kind: Rule
-      match: Host(`netbird.ffd.link`) && PathPrefix(`/management`)
+      match: Host(`netbird2.ffd.link`) && PathPrefix(`/management`)
       services:
         - name: netbird-management
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 80
           scheme: h2c
     - kind: Rule
-      match: Host(`netbird.ffd.link`) && PathPrefix(`/signalexchange`)
+      match: Host(`netbird2.ffd.link`) && PathPrefix(`/signalexchange`)
       services:
         - name: netbird-signal
-          namespace: netbird
+          namespace: netbird2
           passHostHeader: true
           port: 80
           scheme: h2c

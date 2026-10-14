@@ -1,11 +1,11 @@
-# NetBird relay : relais WebSocket (rels://netbird.ffd.link:443/relay) quand
+# NetBird relay : relais WebSocket (rels://netbird2.ffd.link:443/relay) quand
 # deux pairs ne peuvent pas se joindre en direct. Le secret est partagé avec
 # le management (Relay.Secret de management.json).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: netbird-relay
-  namespace: netbird
+  namespace: netbird2
   labels:
     app.kubernetes.io/name: netbird-relay
     app.kubernetes.io/instance: netbird
@@ -29,7 +29,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: NB_EXPOSED_ADDRESS
-              value: rels://netbird.ffd.link:443/relay
+              value: rels://netbird2.ffd.link:443/relay
             - name: NB_LISTEN_ADDRESS
               value: ":33080"
             - name: NB_LOG_LEVEL
@@ -65,7 +65,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: netbird-relay
-  namespace: netbird
+  namespace: netbird2
   labels:
     app.kubernetes.io/name: netbird-relay
     app.kubernetes.io/instance: netbird
