@@ -1,0 +1,275 @@
+# NetBird management : API REST + gRPC (port 80, h2c), base SQLite sur PVC.
+#
+# Manifests bruts (ex-chart totmicro/netbird 1.8.2) : noms et sélecteurs
+# (app.kubernetes.io/name + app.kubernetes.io/instance: netbird) identiques à
+# ceux du chart → ArgoCD reprend les objets existants, PVC compris.
+#
+# Le dépôt est public : AUCUN secret ici. management.json contient des
+# placeholders `{{ .VAR }}` que le management résout au démarrage avec ses
+# variables d'environnement (NetBird ≥ 0.30.1), alimentées par le Secret
+# `netbird` (externalsecrets.yaml).
+---
+# HttpConfig.AuthClientID / AuthCallbackURL : SSO des services du reverse
+# proxy avec un IdP externe (Zitadel). Le callback doit aussi être déclaré
+# comme Redirect URI de l'app NetBird dans Zitadel.
+# ⚠️ Après modification : incrémenter `config-revision` dans le Deployment
+# ci-dessous (pas de redémarrage automatique sur changement de ConfigMap).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netbird-management
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-management
+    app.kubernetes.io/instance: netbird
+data:
+  management.json: |-
+    {
+      "Stuns": [
+        {
+          "Proto": "udp",
+          "URI": "stun:turn.ffd.link:3478",
+          "Username": "",
+          "Password": ""
+        }
+      ],
+      "TURNConfig": {
+        "TimeBasedCredentials": false,
+        "CredentialsTTL": "12h0m0s",
+        "Secret": "secret",
+        "Turns": [
+          {
+            "Proto": "udp",
+            "URI": "turn:turn.ffd.link:3478",
+            "Username": "coturn",
+            "Password": "{{ .TURN_SERVER_PASSWORD }}"
+          }
+        ]
+      },
+      "Relay": {
+        "Addresses": [
+          "rels://netbird.ffd.link:443/relay"
+        ],
+        "CredentialsTTL": "24h",
+        "Secret": "{{ .RELAY_PASSWORD }}"
+      },
+      "Signal": {
+        "Proto": "https",
+        "URI": "netbird.ffd.link:443",
+        "Username": "",
+        "Password": ""
+      },
+      "Datadir": "/var/lib/netbird/",
+      "DataStoreEncryptionKey": "{{ .DATASTORE_ENCRYPTION_KEY }}",
+      "HttpConfig": {
+        "AuthIssuer": "https://idp.ffd.link",
+        "AuthAudience": "301166795920835005",
+        "OIDCConfigEndpoint": "https://idp.ffd.link/.well-known/openid-configuration",
+        "AuthKeysLocation": "https://idp.ffd.link/oauth/v2/keys",
+        "LetsEncryptDomain": "",
+        "CertFile": "",
+        "CertKey": "",
+        "AuthUserIDClaim": "",
+        "IdpSignKeyRefreshEnabled": true,
+        "ExtraAuthAudience": "301166482841141693",
+        "AuthClientID": "301166795920835005",
+        "AuthCallbackURL": "https://netbird.ffd.link/api/reverse-proxy/callback"
+      },
+      "IdpManagerConfig": {
+        "ManagerType": "zitadel",
+        "ClientConfig": {
+          "Issuer": "https://idp.ffd.link",
+          "TokenEndpoint": "https://idp.ffd.link/oauth/v2/token",
+          "ClientID": "netbird@idp.ffd.link",
+          "ClientSecret": "{{ .IDP_SERVICE_USER_SECRET }}",
+          "GrantType": "client_credentials"
+        },
+        "ExtraConfig": {
+          "ManagementEndpoint": "https://idp.ffd.link/management/v1"
+        }
+      },
+      "DeviceAuthorizationFlow": {
+        "Provider": "hosted",
+        "ProviderConfig": {
+          "ClientID": "301166795920835005",
+          "ClientSecret": "",
+          "Domain": "idp.ffd.link",
+          "Audience": "301166795920835005",
+          "TokenEndpoint": "https://idp.ffd.link/oauth/v2/token",
+          "DeviceAuthEndpoint": "https://idp.ffd.link/oauth/v2/device_authorization",
+          "AuthorizationEndpoint": "",
+          "Scope": "openid",
+          "UseIDToken": false,
+          "RedirectURLs": null
+        }
+      },
+      "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+          "ClientID": "301166795920835005",
+          "ClientSecret": "",
+          "Domain": "",
+          "Audience": "301166795920835005",
+          "DeviceAuthEndpoint": "",
+          "Scope": "openid profile email offline_access api groups zitadel:grants",
+          "UseIDToken": false,
+          "RedirectURLs": [
+            "http://localhost:53000/",
+            "http://localhost:54000/"
+          ],
+          "TokenEndpoint": "https://idp.ffd.link/oauth/v2/token",
+          "AuthorizationEndpoint": "https://idp.ffd.link/oauth/v2/authorize"
+        }
+      },
+      "StoreConfig": {
+        "Engine": "sqlite"
+      },
+      "ReverseProxy": {
+        "TrustedHTTPProxies": null,
+        "TrustedHTTPProxiesCount": 0,
+        "TrustedPeers": null
+      }
+    }
+---
+# Base SQLite du management (comptes, pairs, politiques…). Conservée même si
+# l'Application est supprimée ou le fichier retiré (Prune/Delete=false).
+# Classe de stockage par défaut, comme à la création (champ immuable).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netbird-management
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-management
+    app.kubernetes.io/instance: netbird
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-management
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-management
+    app.kubernetes.io/instance: netbird
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: netbird-management
+      app.kubernetes.io/instance: netbird
+  strategy:
+    # SQLite sur PVC RWO : jamais deux managements en même temps (un
+    # RollingUpdate bloquerait en Multi-Attach sur un autre nœud).
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        # À incrémenter après toute modification de la ConfigMap ci-dessus.
+        netbird.ffd.link/config-revision: "1"
+      labels:
+        app.kubernetes.io/name: netbird-management
+        app.kubernetes.io/instance: netbird
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: management
+          # Garder le même tag que signal, relay et reverse proxy.
+          image: netbirdio/management:0.80.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port=80
+            - --log-file=console
+            - --log-level=info
+            - --disable-anonymous-metrics=false
+            - --single-account-mode-domain=netbird.selfhosted
+            - --dns-domain=netbird.selfhosted
+          # Résolution des placeholders de management.json
+          env:
+            - name: DATASTORE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird
+                  key: datastoreEncryptionKey
+            - name: IDP_SERVICE_USER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: netbird
+                  key: idpServiceUserSecret
+            - name: RELAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netbird
+                  key: relayPassword
+            - name: TURN_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netbird
+                  key: turnServerPassword
+          ports:
+            # HTTP + gRPC multiplexés (dashboard, clients, reverse proxy)
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            # Ancien port gRPC (anciens clients)
+            - name: grpc
+              containerPort: 33073
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "echo Waiting 5 seconds to allow terminating current connections >/proc/1/fd/1; sleep 5"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/netbird
+            - name: data
+              mountPath: /var/lib/netbird
+      volumes:
+        - name: config
+          configMap:
+            name: netbird-management
+        - name: data
+          persistentVolumeClaim:
+            claimName: netbird-management
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-management
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-management
+    app.kubernetes.io/instance: netbird
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: netbird-management
+    app.kubernetes.io/instance: netbird
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,271 @@
+# Reverse proxy NetBird (netbirdio/reverse-proxy) — expose des services du
+# réseau NetBird sur *.proxy.ffd.link, avec auth (SSO Zitadel, PIN, mot de passe)
+# ou en accès « NetBird-Only ».
+#
+# Chemin du trafic : Internet → OPNsense (443) → IP LoadBalancer de Traefik →
+# IngressRouteTCP (SNI *.proxy.ffd.link, TLS passthrough + PROXY protocol v2) →
+# Service netbird-proxy:8443. Aucune IP LoadBalancer dédiée : les autres hôtes
+# (*.ffd.link) continuent de passer par les routers HTTP de Traefik.
+#
+# Le proxy termine lui-même le TLS (Let's Encrypt, TLS-ALPN-01 sur le 443) et
+# parle au management en gRPC interne (http:// → pas de TLS, le schéma suffit).
+#
+# ⚠️ Le passthrough contourne les middlewares Traefik : ni bouncer/AppSec
+# CrowdSec, ni access logs Traefik pour ces hôtes. La réputation IP CrowdSec est
+# faite par le proxy lui-même (LAPI OPNsense), à activer service par service
+# dans le dashboard (Access Control).
+#
+# Mise en place (token, OpenBao, DNS, Zitadel) : infra/netbird/README.md.
+---
+# Répertoire de travail du proxy (HOME=/var/lib/netbird) : certificats ACME +
+# compte ACME (à conserver : une réémission compte dans les quotas Let's
+# Encrypt) et base GeoLite2 (~60 Mo, téléchargée au démarrage si absente).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netbird-proxy-data
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-proxy
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netbird-proxy
+  strategy:
+    # Volume RWO + cache de certificats à un seul écrivain
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: netbird-proxy
+    spec:
+      # Verrou des certificats en flock (NB_PROXY_CERT_LOCK_METHOD) : pas besoin
+      # du token de ServiceAccount (le mode `auto` tenterait des Leases k8s).
+      automountServiceAccountToken: false
+      # L'image tourne en `netbird` (UID/GID 1000) ; fsGroup pour le volume.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy
+          # Même version que le management (management.yaml).
+          image: netbirdio/reverse-proxy:0.80.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Domaine du cluster de proxy : services en <nom>.proxy.ffd.link
+            - name: NB_PROXY_DOMAIN
+              value: proxy.ffd.link
+            - name: NB_PROXY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-proxy-token
+                  key: token
+            # Port 80 du Service management : HTTP + gRPC (h2c) multiplexés.
+            - name: NB_PROXY_MANAGEMENT_ADDRESS
+              value: http://netbird-management.netbird.svc.cluster.local:80
+            - name: NB_PROXY_ADDRESS
+              value: ":8443"
+            # Sondes (et métriques Prometheus) sur toutes les interfaces
+            - name: NB_PROXY_HEALTH_ADDRESS
+              value: ":8080"
+            - name: NB_PROXY_ACME_CERTIFICATES
+              value: "true"
+            - name: NB_PROXY_ACME_CHALLENGE_TYPE
+              value: tls-alpn-01
+            # Racine du PVC (le répertoire doit exister pour les verrous flock)
+            - name: NB_PROXY_CERTIFICATE_DIRECTORY
+              value: /var/lib/netbird
+            - name: NB_PROXY_CERT_LOCK_METHOD
+              value: flock
+            - name: NB_PROXY_FORWARDED_PROTO
+              value: https
+            # IP client réelle : Traefik envoie un header PROXY v2 (pp-v2). Le
+            # proxy l'EXIGE de toute source de confiance → seul Traefik peut
+            # joindre le 8443 (NetworkPolicy ci-dessous).
+            - name: NB_PROXY_PROXY_PROTOCOL
+              value: "true"
+            # CIDR des pods (défaut k3s/RKE2) : connexions venant des pods Traefik.
+            - name: NB_PROXY_TRUSTED_PROXIES
+              value: 10.42.0.0/16
+            # Seul le 443 (via Traefik) est exposé : pas de services TCP/UDP
+            # sur des ports dédiés.
+            - name: NB_PROXY_SUPPORTS_CUSTOM_PORTS
+              value: "false"
+            # Capacité « Private » : services NetBird-Only (joignables
+            # uniquement par les pairs NetBird) et cible « Proxy Cluster »
+            # (le proxy joint directement <svc>.<ns>.svc.cluster.local). Les
+            # services publics restent servis normalement.
+            - name: NB_PROXY_PRIVATE
+              value: "true"
+            # Réputation IP via le LAPI CrowdSec de l'OPNsense (bouncer
+            # `netbird-proxy`). Démarré à la demande, quand un service active
+            # CrowdSec (enforce/observe) dans le dashboard.
+            - name: NB_PROXY_CROWDSEC_API_URL
+              value: http://10.5.0.1:8080
+            - name: NB_PROXY_CROWDSEC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-proxy-token
+                  key: crowdsec
+          ports:
+            - name: https
+              containerPort: 8443
+            - name: health
+              containerPort: 8080
+          # Démarré = connecté au management + première synchro des services.
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: health
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          # Prêt = connecté au management (sinon retiré des endpoints Traefik).
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/netbird
+            # Téléchargement GeoLite2 (archive temporaire) — rootfs en lecture seule
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: netbird-proxy-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-proxy
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  type: ClusterIP
+  # IPv4 seulement : Traefik joint alors le pod depuis son IP de pod IPv4,
+  # couverte par NB_PROXY_TRUSTED_PROXIES. Une connexion IPv6 ne serait pas
+  # « de confiance » et son header PROXY casserait la poignée de main TLS.
+  ipFamilyPolicy: SingleStack
+  ipFamilies:
+    - IPv4
+  selector:
+    app: netbird-proxy
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+---
+# PROXY protocol v2 de Traefik vers le proxy (IP client réelle). Fonctionne
+# parce que le Service Traefik est en externalTrafficPolicy: Local
+# (init/00-traefik3.yaml) : Traefik voit lui-même l'IP réelle.
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: pp-v2
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  proxyProtocol:
+    version: 2
+---
+# Les routers TCP passent AVANT les routers HTTP sur un même entrypoint : on ne
+# capte donc que proxy.ffd.link et ses sous-domaines (pas de HostSNI(`*`), qui
+# avalerait tous les autres hôtes du 443). Un domaine personnalisé (CNAME vers
+# proxy.ffd.link) doit être ajouté ici pour atteindre le proxy.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: netbird-proxy
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: HostSNI(`proxy.ffd.link`) || HostSNIRegexp(`^.+\.proxy\.ffd\.link$`)
+      services:
+        - name: netbird-proxy
+          port: 8443
+          serversTransport: pp-v2
+  tls:
+    passthrough: true
+---
+# Le proxy fait confiance au header PROXY de tout le CIDR des pods : seul
+# Traefik doit pouvoir joindre le 8443 (sinon n'importe quel pod pourrait
+# usurper une IP client et contourner les restrictions IP/pays/CrowdSec).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: netbird-proxy
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  podSelector:
+    matchLabels:
+      app: netbird-proxy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 8443
+    # Sondes kubelet et métriques Prometheus
+    - ports:
+        - protocol: TCP
+          port: 8080
+    # WireGuard du client NetBird embarqué (port UDP aléatoire) : connexions
+    # directes des pairs.
+    - ports:
+        - protocol: UDP

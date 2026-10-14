@@ -15,7 +15,8 @@ Kubernetes Cluster
 ├── Dev             → Kasm Workspaces (VDI) — Coder désactivé
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
-└── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
+└── VPN             → NetBird (overlay WireGuard) + reverse proxy NetBird
 ```
 
 ### Domaines exposés
@@ -34,6 +35,8 @@ Kubernetes Cluster
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
+| NetBird (dashboard, management, signal, relay) | `https://netbird.ffd.link` |
+| Reverse proxy NetBird | `https://*.proxy.ffd.link` (TLS passthrough Traefik) |
 
 ---
 
@@ -119,6 +122,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
+| `13` | NetBird + reverse proxy (`netbird.ffd.link`, `*.proxy.ffd.link`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -175,7 +179,9 @@ agrocd-home/
 │   ├── 10-oxicloud.yaml      # App ArgoCD → ./infra/oxicloud (cloud.ffd.link)
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
-│   └── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
+│   ├── 13-netbird.yaml       # App ArgoCD → ./infra/netbird (netbird.ffd.link, *.proxy.ffd.link)
+│   └── netbird/              # NetBird en manifests bruts (management, signal, relay, dashboard, reverse proxy) + ExternalSecrets + README
 │
 ├── dev/
 │   ├── kasm.yaml             # App ArgoCD multi-source : chart Helm kasm-helm + ./dev/kasm
@@ -223,6 +229,9 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
+| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.80.0 | netbird |
+| NetBird dashboard | `netbirdio/dashboard` | v2.94.0 | netbird |
+| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.80.0 | netbird |
 
 ---
 
@@ -386,6 +395,8 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `office.ffd.link` (Euro-Office) | `infra/euro-office/euro-office.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
+>
+> `*.proxy.ffd.link` (reverse proxy NetBird) est en **TLS passthrough** : Traefik ne voit pas le HTTP, le middleware ne s'applique pas. La réputation IP CrowdSec y est assurée par le proxy lui-même (bouncer `netbird-proxy` sur le LAPI OPNsense), voir `infra/netbird/README.md`.
 
 **Whitelists anti-faux-positifs** (`init/01-crowdsec.yaml`, parsers `s02-enrich`) : certaines applications génèrent un fort volume de requêtes légitimes qui ressemblent à du crawl/probing. Des whitelists ciblées évitent les bans intempestifs **sans désactiver la détection brute-force** (les réponses `401`/`403` restent analysées) :
 
