@@ -1,9 +1,9 @@
 # Reverse proxy NetBird (netbirdio/reverse-proxy) — expose des services du
-# réseau NetBird sur *.nb.ffd.link, avec auth (SSO Zitadel, PIN, mot de passe)
+# réseau NetBird sur *.proxy.ffd.link, avec auth (SSO Zitadel, PIN, mot de passe)
 # ou en accès « NetBird-Only ».
 #
 # Chemin du trafic : Internet → OPNsense (443) → IP LoadBalancer de Traefik →
-# IngressRouteTCP (SNI *.nb.ffd.link, TLS passthrough + PROXY protocol v2) →
+# IngressRouteTCP (SNI *.proxy.ffd.link, TLS passthrough + PROXY protocol v2) →
 # Service netbird-proxy:8443. Aucune IP LoadBalancer dédiée : les autres hôtes
 # (*.ffd.link) continuent de passer par les routers HTTP de Traefik.
 #
@@ -77,9 +77,9 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            # Domaine du cluster de proxy : services en <nom>.nb.ffd.link
+            # Domaine du cluster de proxy : services en <nom>.proxy.ffd.link
             - name: NB_PROXY_DOMAIN
-              value: nb.ffd.link
+              value: proxy.ffd.link
             - name: NB_PROXY_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -215,9 +215,9 @@ spec:
     version: 2
 ---
 # Les routers TCP passent AVANT les routers HTTP sur un même entrypoint : on ne
-# capte donc que nb.ffd.link et ses sous-domaines (pas de HostSNI(`*`), qui
+# capte donc que proxy.ffd.link et ses sous-domaines (pas de HostSNI(`*`), qui
 # avalerait tous les autres hôtes du 443). Un domaine personnalisé (CNAME vers
-# nb.ffd.link) doit être ajouté ici pour atteindre le proxy.
+# proxy.ffd.link) doit être ajouté ici pour atteindre le proxy.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRouteTCP
 metadata:
@@ -229,7 +229,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: HostSNI(`nb.ffd.link`) || HostSNIRegexp(`^.+\.nb\.ffd\.link$`)
+    - match: HostSNI(`proxy.ffd.link`) || HostSNIRegexp(`^.+\.proxy\.ffd\.link$`)
       services:
         - name: netbird-proxy
           port: 8443

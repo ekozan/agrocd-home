@@ -3,7 +3,7 @@
 | Composant | URL | Image |
 |-----------|-----|-------|
 | Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.80.0`, `netbirdio/dashboard:v2.94.0` |
-| Reverse proxy NetBird | `https://*.nb.ffd.link` | `netbirdio/reverse-proxy:0.80.0` |
+| Reverse proxy NetBird | `https://*.proxy.ffd.link` | `netbirdio/reverse-proxy:0.80.0` |
 
 Déployé par l'Application ArgoCD `netbird` (`infra/13-netbird.yaml`, sync-wave 13),
 en manifests bruts (ex-chart `totmicro/netbird` 1.8.2, plus publié depuis
@@ -25,7 +25,7 @@ Internet ──443──> OPNsense ──> IP LoadBalancer Traefik (externalTraf
                                   ├─ Host netbird.ffd.link (router HTTP, TLS Traefik)
                                   │     └─> dashboard / management / signal / relay
                                   │
-                                  └─ SNI nb.ffd.link, *.nb.ffd.link (router TCP,
+                                  └─ SNI proxy.ffd.link, *.proxy.ffd.link (router TCP,
                                      TLS passthrough + PROXY protocol v2)
                                         └─> netbird-proxy:8443 (TLS Let's Encrypt du proxy)
                                                ├─ gRPC interne ─> netbird-management:80
@@ -89,11 +89,11 @@ Gestion ultérieure : `… netbird-mgmt admin token list` / `admin token revoke 
 
 | Type | Nom | Valeur |
 |------|-----|--------|
-| `A` | `nb.ffd.link` | IP publique |
-| `CNAME` | `*.nb.ffd.link` | `nb.ffd.link` |
+| `A` | `proxy.ffd.link` | IP publique |
+| `CNAME` | `*.proxy.ffd.link` | `proxy.ffd.link` |
 
 Un wildcard `*.ffd.link` existant couvre déjà ces noms **tant que**
-`nb.ffd.link` n'a pas d'enregistrement propre. Rien à changer sur l'OPNsense :
+`proxy.ffd.link` n'a pas d'enregistrement propre. Rien à changer sur l'OPNsense :
 le 443 arrive déjà sur Traefik. Le client NetBird embarqué dans le proxy joint
 Signal et le relay via `netbird.ffd.link` : le hairpin NAT (ou un split DNS)
 doit fonctionner depuis le cluster.
@@ -136,7 +136,7 @@ kubectl -n netbird logs deploy/netbird-management | head
 kubectl -n netbird logs deploy/netbird-proxy -f
 ```
 
-Dans le dashboard : **Reverse Proxy → Services → Add Service**, `nb.ffd.link`
+Dans le dashboard : **Reverse Proxy → Services → Add Service**, `proxy.ffd.link`
 apparaît avec le badge **Cluster** ; la page **Clusters** affiche **Private** et
 la prise en charge CrowdSec.
 
@@ -155,10 +155,10 @@ la prise en charge CrowdSec.
 
 ## Notes
 
-- **Pas de CrowdSec Traefik sur `*.nb.ffd.link`** : en passthrough, Traefik ne
+- **Pas de CrowdSec Traefik sur `*.proxy.ffd.link`** : en passthrough, Traefik ne
   voit pas le HTTP (ni bouncer, ni AppSec, ni access logs → pas de détection par
   l'agent). Seule la réputation IP du proxy s'applique.
-- **Domaine personnalisé** (CNAME vers `nb.ffd.link`) : l'ajouter au `match` de
+- **Domaine personnalisé** (CNAME vers `proxy.ffd.link`) : l'ajouter au `match` de
   l'IngressRouteTCP, sinon Traefik le traite comme un hôte HTTP inconnu.
 - **IP client réelle** : `NB_PROXY_TRUSTED_PROXIES=10.42.0.0/16` suppose le CIDR
   de pods par défaut de k3s/RKE2 (`kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'`).

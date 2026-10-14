@@ -36,7 +36,7 @@ Kubernetes Cluster
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
 | NetBird (dashboard, management, signal, relay) | `https://netbird.ffd.link` |
-| Reverse proxy NetBird | `https://*.nb.ffd.link` (TLS passthrough Traefik) |
+| Reverse proxy NetBird | `https://*.proxy.ffd.link` (TLS passthrough Traefik) |
 
 ---
 
@@ -122,7 +122,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `10` | OxiCloud (`cloud.ffd.link`) |
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
-| `13` | NetBird + reverse proxy (`netbird.ffd.link`, `*.nb.ffd.link`) |
+| `13` | NetBird + reverse proxy (`netbird.ffd.link`, `*.proxy.ffd.link`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -180,7 +180,7 @@ agrocd-home/
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
 │   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
-│   ├── 13-netbird.yaml       # App ArgoCD → ./infra/netbird (netbird.ffd.link, *.nb.ffd.link)
+│   ├── 13-netbird.yaml       # App ArgoCD → ./infra/netbird (netbird.ffd.link, *.proxy.ffd.link)
 │   └── netbird/              # NetBird en manifests bruts (management, signal, relay, dashboard, reverse proxy) + ExternalSecrets + README
 │
 ├── dev/
@@ -396,7 +396,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 >
-> `*.nb.ffd.link` (reverse proxy NetBird) est en **TLS passthrough** : Traefik ne voit pas le HTTP, le middleware ne s'applique pas. La réputation IP CrowdSec y est assurée par le proxy lui-même (bouncer `netbird-proxy` sur le LAPI OPNsense), voir `infra/netbird/README.md`.
+> `*.proxy.ffd.link` (reverse proxy NetBird) est en **TLS passthrough** : Traefik ne voit pas le HTTP, le middleware ne s'applique pas. La réputation IP CrowdSec y est assurée par le proxy lui-même (bouncer `netbird-proxy` sur le LAPI OPNsense), voir `infra/netbird/README.md`.
 
 **Whitelists anti-faux-positifs** (`init/01-crowdsec.yaml`, parsers `s02-enrich`) : certaines applications génèrent un fort volume de requêtes légitimes qui ressemblent à du crawl/probing. Des whitelists ciblées évitent les bans intempestifs **sans désactiver la détection brute-force** (les réponses `401`/`403` restent analysées) :
 

@@ -1,4 +1,4 @@
-# NetBird (VPN overlay, netbird.ffd.link) + reverse proxy NetBird (*.nb.ffd.link).
+# NetBird (VPN overlay, netbird.ffd.link) + reverse proxy NetBird (*.proxy.ffd.link).
 #
 # Manifests bruts dans infra/netbird/ (management, signal, relay, dashboard,
 # reverse proxy, ExternalSecrets OpenBao, IngressRoute). Plus de chart Helm :
