@@ -5,12 +5,15 @@
 | Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.80.0`, `netbirdio/dashboard:v2.94.0` |
 | Reverse proxy NetBird | `https://*.nb.ffd.link` | `netbirdio/reverse-proxy:0.80.0` |
 
-Déployé par l'Application ArgoCD `netbird` (`infra/13-netbird.yaml`, sync-wave 13) :
-chart Helm `totmicro/netbird` 1.8.2 + manifests de ce dossier.
+Déployé par l'Application ArgoCD `netbird` (`infra/13-netbird.yaml`, sync-wave 13),
+en manifests bruts (ex-chart `totmicro/netbird` 1.8.2, plus publié depuis
+novembre 2025 et sans gestion du reverse proxy).
 
 | Fichier | Rôle |
 |---------|------|
 | `externalsecrets.yaml` | Secrets `netbird` et `netbird-proxy-token` depuis OpenBao (wave -1) |
+| `management.yaml` | ConfigMap `management.json`, PVC SQLite, Deployment, Service |
+| `signal.yaml`, `relay.yaml`, `dashboard.yaml` | Deployment + Service de chaque composant |
 | `ingressroute.yaml` | Route Traefik de `netbird.ffd.link` (TLS terminé par Traefik, wildcard `*.ffd.link`) |
 | `proxy.yaml` | Reverse proxy : PVC, Deployment, Service, passthrough TLS Traefik, NetworkPolicy |
 
@@ -82,16 +85,7 @@ bao kv put -mount=kv kubernetes/netbird/proxy \
 
 Gestion ultérieure : `… netbird-mgmt admin token list` / `admin token revoke <token-id>`.
 
-### 3. AppProject
-
-Le dépôt du chart (`https://totmicro.github.io/helms`) est ajouté à la liste
-blanche de `appproject.yaml`, appliqué à la main :
-
-```bash
-kubectl apply -f appproject.yaml
-```
-
-### 4. DNS
+### 3. DNS
 
 | Type | Nom | Valeur |
 |------|-----|--------|
@@ -104,16 +98,18 @@ le 443 arrive déjà sur Traefik. Le client NetBird embarqué dans le proxy join
 Signal et le relay via `netbird.ffd.link` : le hairpin NAT (ou un split DNS)
 doit fonctionner depuis le cluster.
 
-### 5. Zitadel (SSO des services du proxy)
+### 4. Zitadel (SSO des services du proxy)
 
 Dans l'application NetBird de Zitadel (client `301166795920835005`), ajouter la
 Redirect URI `https://netbird.ffd.link/api/reverse-proxy/callback`
 (`HttpConfig.AuthCallbackURL` de `management.json`).
 
-### 6. Reprise de l'installation existante
+### 5. Reprise de l'installation existante
 
-L'Application `netbird` et la release Helm `netbird` gardent leur nom : ArgoCD
-reprend les ressources en place (Deployments, PVC du management, Services).
+Les manifests gardent les noms et les sélecteurs du chart : ArgoCD reprend les
+ressources en place (Deployments, PVC du management, Services). Le management
+redémarre (nouvelle config) ; signal, relay et dashboard aussi, une fois (plus
+de ServiceAccount dédié) : les pairs se reconnectent en quelques secondes.
 
 - **Application ArgoCD `netbird` créée à la main** : l'app `infra` la met à
   jour sur place. Après la première sync, retirer l'ancienne source restée dans
@@ -123,14 +119,16 @@ reprend les ressources en place (Deployments, PVC du management, Services).
     -p '[{"op":"remove","path":"/spec/source"}]'
   ```
 - **Release Helm (Rancher, `helm install`)** : après la première sync ArgoCD,
-  faire oublier la release à Helm **sans** la désinstaller :
+  faire oublier la release à Helm **sans** la désinstaller, puis supprimer les
+  ServiceAccounts du chart, devenus inutiles :
   ```bash
   kubectl -n netbird delete secret -l owner=helm,name=netbird
+  kubectl -n netbird delete sa netbird-management netbird-signal netbird-relay netbird-dashboard
   ```
   Ne jamais faire `helm uninstall` / « Delete » dans Rancher : cela supprimerait
   les ressources, PVC du management compris.
 
-### 7. Vérifier
+### 6. Vérifier
 
 ```bash
 kubectl -n netbird get externalsecret          # netbird et netbird-proxy-token : Ready
@@ -166,9 +164,15 @@ la prise en charge CrowdSec.
   de pods par défaut de k3s/RKE2 (`kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'`).
   Le proxy exige un header PROXY de ces IP ; la NetworkPolicy réserve donc le
   8443 à Traefik.
-- **Versions** : garder le reverse proxy au même tag que le management.
+- **Mises à jour** : Renovate suit les `image:` ; management, signal, relay et
+  reverse proxy arrivent dans une seule PR (groupe `netbird`) pour garder le
+  proxy au même tag que le management. Le dashboard est versionné à part.
+- **Modifier `management.json`** : incrémenter l'annotation
+  `netbird.ffd.link/config-revision` du Deployment dans le même commit, sinon
+  le management garde l'ancienne config jusqu'à son prochain redémarrage.
 - **Services TCP/UDP** (ports dédiés) : non exposés (`NB_PROXY_SUPPORTS_CUSTOM_PORTS=false`).
   Il faudrait un Service LoadBalancer pour ces ports + un port forward OPNsense.
 - ⚠️ **Prune** : supprimer `infra/13-netbird.yaml` supprime l'Application et,
-  par son finalizer, **toutes** les ressources NetBird, PVC du management
-  compris. Pour retirer seulement le proxy, supprimer `proxy.yaml`.
+  par son finalizer, les ressources NetBird. Le PVC du management (base
+  SQLite) est conservé (`Prune=false,Delete=false`). Pour retirer seulement le
+  proxy, supprimer `proxy.yaml`.

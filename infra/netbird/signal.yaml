@@ -1,0 +1,69 @@
+# NetBird signal : échange des candidats de connexion entre pairs (gRPC h2c
+# et WebSocket /ws-proxy/signal, via l'IngressRoute netbird.ffd.link).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-signal
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-signal
+    app.kubernetes.io/instance: netbird
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: netbird-signal
+      app.kubernetes.io/instance: netbird
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: netbird-signal
+        app.kubernetes.io/instance: netbird
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: signal
+          # Garder le même tag que management, relay et reverse proxy.
+          image: netbirdio/signal:0.80.0
+          imagePullPolicy: IfNotPresent
+          args: ["--port", "80", "--log-level", "info", "--log-file", "console"]
+          ports:
+            - name: grpc
+              containerPort: 80
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "echo Waiting 5 seconds to allow terminating current connections >/proc/1/fd/1; sleep 5"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-signal
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-signal
+    app.kubernetes.io/instance: netbird
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: netbird-signal
+    app.kubernetes.io/instance: netbird
+  ports:
+    - name: grpc
+      port: 80
+      targetPort: grpc
+      protocol: TCP

@@ -180,8 +180,8 @@ agrocd-home/
 │   ├── oxicloud/             # OxiCloud (ExternalSecrets, PVC NFS, Deployment, Service, Ingress) + README bureautique
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
 │   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
-│   ├── 13-netbird.yaml       # App ArgoCD multi-source : chart NetBird + ./infra/netbird
-│   └── netbird/              # ExternalSecrets, IngressRoute netbird.ffd.link, reverse proxy (*.nb.ffd.link) + README
+│   ├── 13-netbird.yaml       # App ArgoCD → ./infra/netbird (netbird.ffd.link, *.nb.ffd.link)
+│   └── netbird/              # NetBird en manifests bruts (management, signal, relay, dashboard, reverse proxy) + ExternalSecrets + README
 │
 ├── dev/
 │   ├── kasm.yaml             # App ArgoCD multi-source : chart Helm kasm-helm + ./dev/kasm
@@ -222,7 +222,6 @@ agrocd-home/
 | Coder (*désactivé*) | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
-| NetBird | `totmicro.github.io/helms` | 1.8.2 (NetBird 0.80.0) | netbird |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
@@ -230,6 +229,8 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
+| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.80.0 | netbird |
+| NetBird dashboard | `netbirdio/dashboard` | v2.94.0 | netbird |
 | Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.80.0 | netbird |
 
 ---

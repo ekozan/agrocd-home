@@ -1,26 +1,17 @@
 # NetBird (VPN overlay, netbird.ffd.link) + reverse proxy NetBird (*.nb.ffd.link).
 #
-# Multi-source :
-#   1. chart Helm totmicro/netbird (management, signal, relay, dashboard) ;
-#   2. infra/netbird/ : ExternalSecrets (OpenBao), IngressRoute netbird.ffd.link,
-#      reverse proxy NetBird (Deployment + passthrough TLS Traefik).
+# Manifests bruts dans infra/netbird/ (management, signal, relay, dashboard,
+# reverse proxy, ExternalSecrets OpenBao, IngressRoute). Plus de chart Helm :
+# totmicro/netbird n'est plus publié depuis 1.8.2 (nov. 2025) et ne gère pas le
+# reverse proxy ; les tags d'image `image:` sont suivis par Renovate.
 #
-# Le chart n'a pas de section proxy : le reverse proxy est déployé à part
-# (infra/netbird/proxy.yaml). Procédure de mise en place (OpenBao, token du
-# proxy, DNS, Zitadel, CrowdSec) : infra/netbird/README.md.
-#
-# Le dépôt est public : AUCUN secret ici. management.json utilise des
-# placeholders `{{ .VAR }}` que le management résout au démarrage depuis ses
-# variables d'environnement (supporté depuis NetBird 0.30.1), elles-mêmes
-# alimentées par le Secret `netbird` (ExternalSecret, infra/netbird/externalsecrets.yaml).
-# Le chart insère `management.configmap` tel quel (pas de `tpl`) : Helm ne
-# touche pas aux `{{ }}`.
+# Mise en place (OpenBao, token du proxy, DNS, Zitadel, reprise de
+# l'installation existante) : infra/netbird/README.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  # Même nom (et même releaseName) que l'installation existante : les
-  # sélecteurs des Deployments (app.kubernetes.io/instance) restent identiques
-  # et ArgoCD reprend les ressources en place, PVC du management compris.
+  # Même nom que l'installation existante : ArgoCD reprend les ressources en
+  # place (mêmes noms et sélecteurs que le chart, PVC du management compris).
   name: netbird
   namespace: argocd
   annotations:
@@ -33,182 +24,14 @@ spec:
   destination:
     server: "https://kubernetes.default.svc"
     namespace: netbird
+  # `sources` (même avec une seule entrée) plutôt que `source` : si une
+  # Application `netbird` existe déjà (créée à la main sur le chart), la mise
+  # à jour fusionnerait sinon l'ancienne `source` (chart + values) avec la
+  # nouvelle. Avec `sources`, l'ancienne `source` est ignorée (à retirer, cf.
+  # README).
   sources:
-    - chart: netbird
-      repoURL: https://totmicro.github.io/helms
-      targetRevision: 1.8.2
-      helm:
-        releaseName: netbird
-        valuesObject:
-          fullnameOverride: netbird
-
-          management:
-            image:
-              # Garder le même tag que signal/relay et que le reverse proxy
-              # (infra/netbird/proxy.yaml).
-              tag: 0.80.0
-            # SQLite sur un PVC RWO : en RollingUpdate (maxSurge 1), le nouveau
-            # pod démarre avant l'arrêt de l'ancien → Multi-Attach bloquant s'il
-            # atterrit sur un autre nœud, ou deux managements sur la même base.
-            strategy:
-              type: Recreate
-            persistentVolume:
-              enabled: true
-              # Taille existante (un PVC ne se réduit pas ; défaut du chart : 10Mi).
-              size: 1Gi
-            podCommand:
-              args:
-                - --port=80
-                - --log-file=console
-                - --log-level=info
-                - --disable-anonymous-metrics=false
-                - --single-account-mode-domain=netbird.selfhosted
-                - --dns-domain=netbird.selfhosted
-            # Secret `netbird` → placeholders de management.json ci-dessous.
-            envFromSecret:
-              DATASTORE_ENCRYPTION_KEY: netbird/datastoreEncryptionKey
-              IDP_SERVICE_USER_SECRET: netbird/idpServiceUserSecret
-              RELAY_PASSWORD: netbird/relayPassword
-              TURN_SERVER_PASSWORD: netbird/turnServerPassword
-            # HttpConfig.AuthClientID / AuthCallbackURL : SSO des services du
-            # reverse proxy avec un IdP externe (Zitadel). Le callback doit aussi
-            # être déclaré comme Redirect URI de l'app NetBird dans Zitadel.
-            configmap: |-
-              {
-                "Stuns": [
-                  {
-                    "Proto": "udp",
-                    "URI": "stun:turn.ffd.link:3478",
-                    "Username": "",
-                    "Password": ""
-                  }
-                ],
-                "TURNConfig": {
-                  "TimeBasedCredentials": false,
-                  "CredentialsTTL": "12h0m0s",
-                  "Secret": "secret",
-                  "Turns": [
-                    {
-                      "Proto": "udp",
-                      "URI": "turn:turn.ffd.link:3478",
-                      "Username": "coturn",
-                      "Password": "{{ .TURN_SERVER_PASSWORD }}"
-                    }
-                  ]
-                },
-                "Relay": {
-                  "Addresses": [
-                    "rels://netbird.ffd.link:443/relay"
-                  ],
-                  "CredentialsTTL": "24h",
-                  "Secret": "{{ .RELAY_PASSWORD }}"
-                },
-                "Signal": {
-                  "Proto": "https",
-                  "URI": "netbird.ffd.link:443",
-                  "Username": "",
-                  "Password": ""
-                },
-                "Datadir": "/var/lib/netbird/",
-                "DataStoreEncryptionKey": "{{ .DATASTORE_ENCRYPTION_KEY }}",
-                "HttpConfig": {
-                  "AuthIssuer": "https://idp.ffd.link",
-                  "AuthAudience": "301166795920835005",
-                  "OIDCConfigEndpoint": "https://idp.ffd.link/.well-known/openid-configuration",
-                  "AuthKeysLocation": "https://idp.ffd.link/oauth/v2/keys",
-                  "LetsEncryptDomain": "",
-                  "CertFile": "",
-                  "CertKey": "",
-                  "AuthUserIDClaim": "",
-                  "IdpSignKeyRefreshEnabled": true,
-                  "ExtraAuthAudience": "301166482841141693",
-                  "AuthClientID": "301166795920835005",
-                  "AuthCallbackURL": "https://netbird.ffd.link/api/reverse-proxy/callback"
-                },
-                "IdpManagerConfig": {
-                  "ManagerType": "zitadel",
-                  "ClientConfig": {
-                    "Issuer": "https://idp.ffd.link",
-                    "TokenEndpoint": "https://idp.ffd.link/oauth/v2/token",
-                    "ClientID": "netbird@idp.ffd.link",
-                    "ClientSecret": "{{ .IDP_SERVICE_USER_SECRET }}",
-                    "GrantType": "client_credentials"
-                  },
-                  "ExtraConfig": {
-                    "ManagementEndpoint": "https://idp.ffd.link/management/v1"
-                  }
-                },
-                "DeviceAuthorizationFlow": {
-                  "Provider": "hosted",
-                  "ProviderConfig": {
-                    "ClientID": "301166795920835005",
-                    "ClientSecret": "",
-                    "Domain": "idp.ffd.link",
-                    "Audience": "301166795920835005",
-                    "TokenEndpoint": "https://idp.ffd.link/oauth/v2/token",
-                    "DeviceAuthEndpoint": "https://idp.ffd.link/oauth/v2/device_authorization",
-                    "AuthorizationEndpoint": "",
-                    "Scope": "openid",
-                    "UseIDToken": false,
-                    "RedirectURLs": null
-                  }
-                },
-                "PKCEAuthorizationFlow": {
-                  "ProviderConfig": {
-                    "ClientID": "301166795920835005",
-                    "ClientSecret": "",
-                    "Domain": "",
-                    "Audience": "301166795920835005",
-                    "DeviceAuthEndpoint": "",
-                    "Scope": "openid profile email offline_access api groups zitadel:grants",
-                    "UseIDToken": false,
-                    "RedirectURLs": [
-                      "http://localhost:53000/",
-                      "http://localhost:54000/"
-                    ],
-                    "TokenEndpoint": "https://idp.ffd.link/oauth/v2/token",
-                    "AuthorizationEndpoint": "https://idp.ffd.link/oauth/v2/authorize"
-                  }
-                },
-                "StoreConfig": {
-                  "Engine": "sqlite"
-                },
-                "ReverseProxy": {
-                  "TrustedHTTPProxies": null,
-                  "TrustedHTTPProxiesCount": 0,
-                  "TrustedPeers": null
-                }
-              }
-
-          signal:
-            image:
-              tag: 0.80.0
-
-          relay:
-            image:
-              tag: 0.80.0
-            env:
-              NB_EXPOSED_ADDRESS: rels://netbird.ffd.link:443/relay
-              NB_LISTEN_ADDRESS: ":33080"
-              NB_LOG_LEVEL: info
-            envFromSecret:
-              NB_AUTH_SECRET: netbird/relayPassword
-
-          dashboard:
-            image:
-              tag: v2.94.0
-            env:
-              AUTH_AUTHORITY: https://idp.ffd.link
-              AUTH_REDIRECT_URI: /auth
-              AUTH_SILENT_REDIRECT_URI: /silent-auth
-              AUTH_SUPPORTED_SCOPES: openid profile email offline_access api groups
-              NETBIRD_MGMT_API_ENDPOINT: https://netbird.ffd.link:443
-              NETBIRD_MGMT_GRPC_API_ENDPOINT: https://netbird.ffd.link:443
-              USE_AUTH0: "false"
-            envFromSecret:
-              AUTH_CLIENT_ID: netbird/idpClientID
     - repoURL: https://github.com/ekozan/agrocd-home.git
-      targetRevision: main
+      targetRevision: HEAD
       path: infra/netbird
   syncPolicy:
     # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)

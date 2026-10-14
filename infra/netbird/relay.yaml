@@ -1,0 +1,81 @@
+# NetBird relay : relais WebSocket (rels://netbird.ffd.link:443/relay) quand
+# deux pairs ne peuvent pas se joindre en direct. Le secret est partagé avec
+# le management (Relay.Secret de management.json).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-relay
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-relay
+    app.kubernetes.io/instance: netbird
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: netbird-relay
+      app.kubernetes.io/instance: netbird
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: netbird-relay
+        app.kubernetes.io/instance: netbird
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: relay
+          # Garder le même tag que management, signal et reverse proxy.
+          image: netbirdio/relay:0.80.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NB_EXPOSED_ADDRESS
+              value: rels://netbird.ffd.link:443/relay
+            - name: NB_LISTEN_ADDRESS
+              value: ":33080"
+            - name: NB_LOG_LEVEL
+              value: info
+            - name: NB_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: netbird
+                  key: relayPassword
+          ports:
+            - name: http
+              containerPort: 33080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "echo Waiting 5 seconds to allow terminating current connections >/proc/1/fd/1; sleep 5"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-relay
+  namespace: netbird
+  labels:
+    app.kubernetes.io/name: netbird-relay
+    app.kubernetes.io/instance: netbird
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: netbird-relay
+    app.kubernetes.io/instance: netbird
+  ports:
+    - name: http
+      port: 33080
+      targetPort: http
+      protocol: TCP

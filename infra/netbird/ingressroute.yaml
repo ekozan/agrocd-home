@@ -1,5 +1,5 @@
 # Route Traefik de netbird.ffd.link (dashboard, API, gRPC management/signal,
-# relay). Reprise telle quelle des `extraManifests` du chart. Le TLS est
+# relay). Reprise telle quelle des anciens `extraManifests` du chart. Le TLS est
 # terminé par Traefik avec le wildcard *.ffd.link ; le reverse proxy NetBird
 # (*.nb.ffd.link, passthrough) est à part, dans proxy.yaml.
 apiVersion: traefik.io/v1alpha1

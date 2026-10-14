@@ -68,7 +68,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: proxy
-          # Même version que le management (infra/13-netbird.yaml).
+          # Même version que le management (management.yaml).
           image: netbirdio/reverse-proxy:0.80.0
           imagePullPolicy: IfNotPresent
           securityContext:
