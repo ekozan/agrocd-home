@@ -18,6 +18,10 @@ spec:
       valuesObject:    
         crds:
           enabled: true
+        # Résolveurs publics pour les checks DNS-01 (SOA + propagation),
+        # indépendants du DNS du cluster/réseau local.
+        extraArgs:
+          - --dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53
   destination:
     server: "https://kubernetes.default.svc"
     namespace: cert-manager
