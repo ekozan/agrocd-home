@@ -17,6 +17,8 @@ spec:
   dnsNames:
     - "ffd.link"
     - "*.ffd.link"
+    - "proxy.ffd.link"
+    - "*.proxy.ffd.link"
   secretTemplate:
     annotations:
       replicator.v1.mittwald.de/replicate-to: ".*"
