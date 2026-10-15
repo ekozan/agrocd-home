@@ -8,7 +8,7 @@
 # (*.ffd.link) continuent de passer par les routers HTTP de Traefik.
 #
 # Le proxy termine lui-même le TLS (Let's Encrypt, TLS-ALPN-01 sur le 443) et
-# parle au management en gRPC interne (http:// → pas de TLS, le schéma suffit).
+# parle au management en gRPC interne, en clair (NB_PROXY_ALLOW_INSECURE).
 #
 # ⚠️ Le passthrough contourne les middlewares Traefik : ni bouncer/AppSec
 # CrowdSec, ni access logs Traefik pour ces hôtes. La réputation IP CrowdSec est
@@ -88,6 +88,10 @@ spec:
             # Port 80 du Service management : HTTP + gRPC (h2c) multiplexés.
             - name: NB_PROXY_MANAGEMENT_ADDRESS
               value: http://netbird-management.netbird.svc.cluster.local:80
+            # Le token du proxy exige TLS par défaut : autoriser le gRPC en clair
+            # vers le management (trafic interne au cluster uniquement).
+            - name: NB_PROXY_ALLOW_INSECURE
+              value: "true"
             - name: NB_PROXY_ADDRESS
               value: ":8443"
             # Sondes (et métriques Prometheus) sur toutes les interfaces
