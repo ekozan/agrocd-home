@@ -1,10 +1,10 @@
 # NetBird signal : échange des candidats de connexion entre pairs (gRPC h2c
-# et WebSocket /ws-proxy/signal, via l'IngressRoute netbird2.ffd.link).
+# et WebSocket /ws-proxy/signal, via l'IngressRoute netbird.ffd.link).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: netbird-signal
-  namespace: netbird2
+  namespace: netbird
   labels:
     app.kubernetes.io/name: netbird-signal
     app.kubernetes.io/instance: netbird
@@ -53,7 +53,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: netbird-signal
-  namespace: netbird2
+  namespace: netbird
   labels:
     app.kubernetes.io/name: netbird-signal
     app.kubernetes.io/instance: netbird

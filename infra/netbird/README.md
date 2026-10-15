@@ -1,26 +1,20 @@
-# NetBird + reverse proxy — instance de test
+# NetBird + reverse proxy
 
 | Composant | URL | Image |
 |-----------|-----|-------|
-| Dashboard, API, management, signal, relay (**test**) | `https://netbird2.ffd.link` | `netbirdio/{management,signal,relay}:0.80.0`, `netbirdio/dashboard:v2.94.0` |
+| Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.80.0`, `netbirdio/dashboard:v2.94.0` |
 | Reverse proxy NetBird | `https://*.proxy.ffd.link` | `netbirdio/reverse-proxy:0.80.0` |
 
-Déployé par l'Application ArgoCD `netbird2` (`infra/13-netbird.yaml`, sync-wave
-13) dans le namespace `netbird2`, en manifests bruts (ex-chart
-`totmicro/netbird` 1.8.2, plus publié depuis novembre 2025 et sans gestion du
-reverse proxy).
-
-**Phase de test** : l'instance de production reste la release Helm du
-namespace `netbird` (`netbird.ffd.link`), à laquelle ArgoCD ne touche pas.
-L'instance de test démarre avec une base vierge. Bascule : voir la dernière
-section.
+Déployé par l'Application ArgoCD `netbird` (`infra/13-netbird.yaml`, sync-wave 13),
+en manifests bruts (ex-chart `totmicro/netbird` 1.8.2, plus publié depuis
+novembre 2025 et sans gestion du reverse proxy).
 
 | Fichier | Rôle |
 |---------|------|
-| `externalsecrets.yaml` | Secrets `netbird` (wave -1) et `netbird-proxy-token` (wave 1) depuis OpenBao |
+| `externalsecrets.yaml` | Secrets `netbird` et `netbird-proxy-token` depuis OpenBao (wave -1) |
 | `management.yaml` | ConfigMap `management.json`, PVC SQLite, Deployment, Service |
 | `signal.yaml`, `relay.yaml`, `dashboard.yaml` | Deployment + Service de chaque composant |
-| `ingressroute.yaml` | Route Traefik de `netbird2.ffd.link` (TLS terminé par Traefik, wildcard `*.ffd.link`) |
+| `ingressroute.yaml` | Route Traefik de `netbird.ffd.link` (TLS terminé par Traefik, wildcard `*.ffd.link`) |
 | `proxy.yaml` | Reverse proxy : PVC, Deployment, Service, passthrough TLS Traefik, NetworkPolicy |
 
 ## Architecture
@@ -28,7 +22,7 @@ section.
 ```
 Internet ──443──> OPNsense ──> IP LoadBalancer Traefik (externalTrafficPolicy: Local)
                                   │
-                                  ├─ Host netbird2.ffd.link (router HTTP, TLS Traefik)
+                                  ├─ Host netbird.ffd.link (router HTTP, TLS Traefik)
                                   │     └─> dashboard / management / signal / relay
                                   │
                                   └─ SNI proxy.ffd.link, *.proxy.ffd.link (router TCP,
@@ -41,19 +35,26 @@ Internet ──443──> OPNsense ──> IP LoadBalancer Traefik (externalTraf
 Pas d'IP LoadBalancer dédiée : tout passe par le 443 de Traefik, qui aiguille
 selon le SNI. Les autres hôtes `*.ffd.link` ne sont pas concernés.
 
-## Mise en place
+## Mise en place (une fois, **avant** de merger)
 
-### 1. Secrets du serveur dans OpenBao (avant le merge)
+L'ordre compte : les ExternalSecrets passent en wave -1. Tant qu'OpenBao n'a
+pas les valeurs, la sync de l'app s'arrête là et rien d'autre n'est modifié.
 
-Le dépôt est public : `management.json` contient des placeholders `{{ .VAR }}`,
-résolus par le management depuis le Secret `netbird`. Tant que
-`kv/kubernetes/netbird/server` est absent ou incomplet, la sync s'arrête à la
-wave -1 et rien n'est démarré. Les valeurs de la production (namespace
-`netbird`) conviennent aussi au test :
+### 1. Secrets du serveur dans OpenBao
+
+Le dépôt est public : les secrets qui étaient en clair dans `management.json`
+sont remplacés par des placeholders `{{ .VAR }}`, résolus par le management
+depuis le Secret `netbird`. Copier les valeurs **actuellement en service**
+dans OpenBao (`kv/kubernetes/netbird/server`) :
 
 ```bash
 CFG=$(kubectl -n netbird get configmap netbird-management -o jsonpath='{.data.management\.json}')
 sec() { kubectl -n netbird get secret netbird -o jsonpath="{.data.$1}" | base64 -d; }
+
+# Garde-fou : la ConfigMap ne doit pas déjà contenir les placeholders
+grep -q '{{' <<<"$CFG" && echo "STOP : ConfigMap déjà migrée"
+# Le relay et le management doivent partager le même secret
+[ "$(sec relayPassword)" = "$(jq -r .Relay.Secret <<<"$CFG")" ] && echo "relay OK" || echo "relay : secrets différents"
 
 bao kv put -mount=kv kubernetes/netbird/server \
   datastore_encryption_key="$(jq -r .DataStoreEncryptionKey <<<"$CFG")" \
@@ -63,44 +64,15 @@ bao kv put -mount=kv kubernetes/netbird/server \
   idp_client_id="$(sec idpClientID)"
 ```
 
-> La clé `datastore_encryption_key` devra être **exactement** celle de la
-> production au moment de la bascule (sinon la base de production devient
-> illisible) : la reprendre telle quelle évite d'y penser plus tard.
+> ⚠️ `datastore_encryption_key` doit être **exactement** la clé actuelle : avec
+> une autre clé, les données chiffrées de la base SQLite deviennent illisibles.
 
-### 2. DNS
-
-| Type | Nom | Valeur |
-|------|-----|--------|
-| `A` | `netbird2.ffd.link` | IP publique |
-| `A` | `proxy.ffd.link` | IP publique |
-| `CNAME` | `*.proxy.ffd.link` | `proxy.ffd.link` |
-
-Un wildcard `*.ffd.link` existant couvre déjà ces noms **tant que**
-`proxy.ffd.link` n'a pas d'enregistrement propre. Rien à changer sur
-l'OPNsense : le 443 arrive déjà sur Traefik. Le client NetBird embarqué dans le
-proxy joint Signal et le relay via `netbird2.ffd.link` : le hairpin NAT (ou un
-split DNS) doit fonctionner depuis le cluster.
-
-### 3. Zitadel
-
-Dans l'application NetBird de Zitadel (client `301166795920835005`), ajouter
-les URI de `netbird2.ffd.link` à côté de celles de `netbird.ffd.link` :
-
-- Redirect URIs : `https://netbird2.ffd.link/auth`,
-  `https://netbird2.ffd.link/silent-auth`,
-  `https://netbird2.ffd.link/api/reverse-proxy/callback` (SSO des services du proxy)
-- Post logout URI : `https://netbird2.ffd.link/`
-
-### 4. Merge, puis token du proxy
-
-Après le merge, l'app `netbird2` démarre management, signal, relay et
-dashboard. Le proxy attend son Secret : son token se crée **sur le management
-de test** (il est stocké dans sa base ; un token créé sur la production ne
-marche pas ici).
+### 2. Token du proxy et clé CrowdSec
 
 ```bash
-# Affiché une seule fois : garder « Token: nbx_… » (40 caractères), pas le Token ID
-kubectl -n netbird2 exec deploy/netbird-management -- \
+# Token d'accès du proxy (affiché une seule fois). Garder la ligne
+# « Token: nbx_… » (40 caractères), pas le Token ID.
+kubectl -n netbird exec deploy/netbird-management -- \
   /go/bin/netbird-mgmt admin token create --name proxy-k3s
 ```
 
@@ -109,28 +81,64 @@ Sur l'OPNsense : `cscli bouncers add netbird-proxy -o raw` (affiche la clé).
 ```bash
 bao kv put -mount=kv kubernetes/netbird/proxy \
   token='nbx_…' crowdsec_api_key='<clé du bouncer>'
-# Forcer la relecture d'OpenBao sans attendre le refreshInterval
-kubectl -n netbird2 annotate externalsecret netbird-proxy-token force-sync="$(date +%s)" --overwrite
 ```
 
 Gestion ultérieure : `… netbird-mgmt admin token list` / `admin token revoke <token-id>`.
 
-### 5. Vérifier
+### 3. DNS
+
+| Type | Nom | Valeur |
+|------|-----|--------|
+| `A` | `proxy.ffd.link` | IP publique |
+| `CNAME` | `*.proxy.ffd.link` | `proxy.ffd.link` |
+
+Un wildcard `*.ffd.link` existant couvre déjà ces noms **tant que**
+`proxy.ffd.link` n'a pas d'enregistrement propre. Rien à changer sur l'OPNsense :
+le 443 arrive déjà sur Traefik. Le client NetBird embarqué dans le proxy joint
+Signal et le relay via `netbird.ffd.link` : le hairpin NAT (ou un split DNS)
+doit fonctionner depuis le cluster.
+
+### 4. Zitadel (SSO des services du proxy)
+
+Dans l'application NetBird de Zitadel (client `301166795920835005`), ajouter la
+Redirect URI `https://netbird.ffd.link/api/reverse-proxy/callback`
+(`HttpConfig.AuthCallbackURL` de `management.json`).
+
+### 5. Reprise de l'installation existante
+
+Les manifests gardent les noms et les sélecteurs du chart : ArgoCD reprend les
+ressources en place (Deployments, PVC du management, Services). Le management
+redémarre (nouvelle config) ; signal, relay et dashboard aussi, une fois (plus
+de ServiceAccount dédié) : les pairs se reconnectent en quelques secondes.
+
+- **Application ArgoCD `netbird` créée à la main** : l'app `infra` la met à
+  jour sur place. Après la première sync, retirer l'ancienne source restée dans
+  l'objet (elle contient les values avec secrets en clair) :
+  ```bash
+  kubectl -n argocd patch application netbird --type json \
+    -p '[{"op":"remove","path":"/spec/source"}]'
+  ```
+- **Release Helm (Rancher, `helm install`)** : après la première sync ArgoCD,
+  faire oublier la release à Helm **sans** la désinstaller, puis supprimer les
+  ServiceAccounts du chart, devenus inutiles :
+  ```bash
+  kubectl -n netbird delete secret -l owner=helm,name=netbird
+  kubectl -n netbird delete sa netbird-management netbird-signal netbird-relay netbird-dashboard
+  ```
+  Ne jamais faire `helm uninstall` / « Delete » dans Rancher : cela supprimerait
+  les ressources, PVC du management compris.
+
+### 6. Vérifier
 
 ```bash
-kubectl -n netbird2 get externalsecret          # netbird et netbird-proxy-token : Ready
-kubectl -n netbird2 logs deploy/netbird-management | head
-kubectl -n netbird2 logs deploy/netbird-proxy -f
+kubectl -n netbird get externalsecret          # netbird et netbird-proxy-token : Ready
+kubectl -n netbird logs deploy/netbird-management | head
+kubectl -n netbird logs deploy/netbird-proxy -f
 ```
 
-- `https://netbird2.ffd.link` : login Zitadel ; le premier utilisateur crée le
-  compte (base vierge).
-- Un client de test : `netbird up --management-url https://netbird2.ffd.link`
-  (sur une machine ou un profil NetBird dédié : un client ne parle qu'à un
-  management à la fois).
-- Dashboard : **Reverse Proxy → Services → Add Service**, `proxy.ffd.link`
-  apparaît avec le badge **Cluster** ; la page **Clusters** affiche **Private**
-  et la prise en charge CrowdSec.
+Dans le dashboard : **Reverse Proxy → Services → Add Service**, `proxy.ffd.link`
+apparaît avec le badge **Cluster** ; la page **Clusters** affiche **Private** et
+la prise en charge CrowdSec.
 
 ## Exposer un service
 
@@ -165,28 +173,6 @@ kubectl -n netbird2 logs deploy/netbird-proxy -f
 - **Services TCP/UDP** (ports dédiés) : non exposés (`NB_PROXY_SUPPORTS_CUSTOM_PORTS=false`).
   Il faudrait un Service LoadBalancer pour ces ports + un port forward OPNsense.
 - ⚠️ **Prune** : supprimer `infra/13-netbird.yaml` supprime l'Application et,
-  par son finalizer, les ressources de `netbird2`. Le PVC du management (base
+  par son finalizer, les ressources NetBird. Le PVC du management (base
   SQLite) est conservé (`Prune=false,Delete=false`). Pour retirer seulement le
   proxy, supprimer `proxy.yaml`.
-
-## Bascule en production (plus tard)
-
-Une fois le test validé, ArgoCD reprend la release Helm **en place** : les
-manifests gardent les noms et les sélecteurs du chart, donc ArgoCD adopte les
-Deployments, Services et surtout le PVC `netbird-management` de la production
-(les données restent où elles sont, rien à copier). Passer de Helm à ArgoCD
-ne pose pas de problème en soi, à condition de :
-
-1. Repasser les manifests en namespace `netbird` / hôte `netbird.ffd.link` et
-   l'Application en `netbird` (même nom que la release Helm).
-2. Ne **jamais** faire `helm uninstall` ni « Delete » dans Rancher (cela
-   supprimerait le PVC) ; après la première sync ArgoCD, faire seulement
-   oublier la release à Helm :
-   ```bash
-   kubectl -n netbird delete secret -l owner=helm,name=netbird
-   kubectl -n netbird delete sa netbird-management netbird-signal netbird-relay netbird-dashboard
-   ```
-3. Recréer le token du proxy sur le management de production (même commande,
-   namespace `netbird`) et le mettre dans OpenBao.
-4. Supprimer l'instance de test : le namespace `netbird2` (son PVC SQLite est
-   conservé par `Delete=false`, à supprimer à la main).

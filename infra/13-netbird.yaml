@@ -1,18 +1,18 @@
-# NetBird — INSTANCE DE TEST (netbird2.ffd.link, namespace netbird2) +
-# reverse proxy NetBird (*.proxy.ffd.link).
-#
-# Tourne en parallèle de l'instance de production (release Helm dans le
-# namespace `netbird`, netbird.ffd.link), sans la toucher : autre nom
-# d'Application, autre namespace, autre hôte. Base de données vierge.
-# Bascule en production plus tard : infra/netbird/README.md (« Bascule »).
+# NetBird (VPN overlay, netbird.ffd.link) + reverse proxy NetBird (*.proxy.ffd.link).
 #
 # Manifests bruts dans infra/netbird/ (management, signal, relay, dashboard,
-# reverse proxy, ExternalSecrets OpenBao, IngressRoute) ; les tags `image:`
-# sont suivis par Renovate.
+# reverse proxy, ExternalSecrets OpenBao, IngressRoute). Plus de chart Helm :
+# totmicro/netbird n'est plus publié depuis 1.8.2 (nov. 2025) et ne gère pas le
+# reverse proxy ; les tags d'image `image:` sont suivis par Renovate.
+#
+# Mise en place (OpenBao, token du proxy, DNS, Zitadel, reprise de
+# l'installation existante) : infra/netbird/README.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: netbird2
+  # Même nom que l'installation existante : ArgoCD reprend les ressources en
+  # place (mêmes noms et sélecteurs que le chart, PVC du management compris).
+  name: netbird
   namespace: argocd
   annotations:
     # Après external-secrets (wave 1) et le store OpenBao (wave 2).
@@ -21,13 +21,18 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: homelab
-  source:
-    repoURL: https://github.com/ekozan/agrocd-home.git
-    targetRevision: HEAD
-    path: infra/netbird
   destination:
     server: "https://kubernetes.default.svc"
-    namespace: netbird2
+    namespace: netbird
+  # `sources` (même avec une seule entrée) plutôt que `source` : si une
+  # Application `netbird` existe déjà (créée à la main sur le chart), la mise
+  # à jour fusionnerait sinon l'ancienne `source` (chart + values) avec la
+  # nouvelle. Avec `sources`, l'ancienne `source` est ignorée (à retirer, cf.
+  # README).
+  sources:
+    - repoURL: https://github.com/ekozan/agrocd-home.git
+      targetRevision: HEAD
+      path: infra/netbird
   syncPolicy:
     # Pod Security Admission — phase A : inventaire sans blocage (warn + audit)
     managedNamespaceMetadata:
