@@ -87,6 +87,11 @@ spec:
               value: https://netbird.ffd.link:443
             - name: NB_LOG_LEVEL
               value: info
+            # Garder le DNS du cluster (CoreDNS) : sinon le client remplace le
+            # resolv.conf du pod et le routeur ne résout plus les noms
+            # <svc>.<ns>.svc.cluster.local (ressources « Domain », cibles du proxy).
+            - name: NB_DISABLE_DNS
+              value: "true"
           # Interface WireGuard noyau + routage/masquerade vers le cluster
           securityContext:
             capabilities:
