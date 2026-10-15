@@ -1,0 +1,106 @@
+# Routing peer NetBird du cluster (pair « netbird-k8s-router ») : client
+# NetBird qui annonce les réseaux du cluster (Services 10.43.0.0/16, pods
+# 10.42.0.0/16 selon la config du Network dans le dashboard). Sert de cible
+# « Peer/Resource » aux services publics du reverse proxy.
+#
+# Remplace le Deployment `netbird` créé à la main dans le namespace `default`
+# (image :latest, clé d'enrôlement en clair, aucun état persistant). Après le
+# premier démarrage de celui-ci : `kubectl -n default delete deploy netbird`.
+#
+# Wave 2 : si la clé n'est pas encore dans OpenBao, seul le routeur attend ;
+# le serveur NetBird (wave 0) et le proxy (wave 1) sont déjà en place.
+---
+# Clé d'enrôlement (setup key) : kv/kubernetes/netbird/router, propriété setup_key.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: netbird-router
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: netbird-router
+    creationPolicy: Owner
+  data:
+    - secretKey: setupKey
+      remoteRef:
+        key: kubernetes/netbird/router
+        property: setup_key
+---
+# Identité WireGuard du pair (clé privée, config) : conservée entre deux
+# redémarrages, sinon chaque redémarrage réenregistre un nouveau pair.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netbird-router-data
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-router
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netbird-router
+  strategy:
+    # Volume RWO + une seule identité de pair à la fois
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: netbird-router
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: netbird
+          # Même version que le serveur (management.yaml).
+          image: netbirdio/netbird:0.80.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NB_SETUP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-router
+                  key: setupKey
+            - name: NB_HOSTNAME
+              value: netbird-k8s-router
+            - name: NB_MANAGEMENT_URL
+              value: https://netbird.ffd.link:443
+            - name: NB_LOG_LEVEL
+              value: info
+          # Interface WireGuard noyau + routage/masquerade vers le cluster
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "SYS_RESOURCE", "SYS_ADMIN"]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/netbird
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: netbird-router-data
