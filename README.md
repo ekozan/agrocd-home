@@ -601,14 +601,18 @@ kubectl top pods -A --sort-by=memory
 
 ```bash
 # Voir toutes les ArgoCD Applications
-kubectl get applications -n argocd
+kubectl get applications.argoproj.io -n argocd
 
 # Détail d'une application
-kubectl describe application infra -n argocd
+kubectl describe applications.argoproj.io infra -n argocd
 
 # Forcer une synchronisation
 argocd app sync infra
 ```
+
+> Toujours écrire `applications.argoproj.io` en entier : Rancher installe
+> `apps.catalog.cattle.io`, dont le nom court `app` l'emporte
+> (`kubectl get app infra` → « apps.catalog.cattle.io "infra" not found »).
 
 ---
 
