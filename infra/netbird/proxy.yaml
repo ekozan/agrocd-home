@@ -17,6 +17,27 @@
 #
 # Mise en place (token, OpenBao, DNS, Zitadel) : infra/netbird/README.md.
 ---
+# Certificat du proxy (proxy.ffd.link + *.proxy.ffd.link), distinct du wildcard
+# *.ffd.link de Traefik : aucun certificat servi par Traefik ne doit couvrir
+# *.proxy.ffd.link (voir infra/post-certmanager/ffd-link.yaml), sinon le
+# navigateur envoie ces requêtes sur une connexion Traefik existante.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: netbird-proxy
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: netbird-proxy-tls
+  issuerRef:
+    name: prod
+    kind: ClusterIssuer
+  commonName: "*.proxy.ffd.link"
+  dnsNames:
+    - "proxy.ffd.link"
+    - "*.proxy.ffd.link"
+---
 # Répertoire de travail du proxy (HOME=/var/lib/netbird) : certificats ACME +
 # compte ACME (à conserver : une réémission compte dans les quotas Let's
 # Encrypt) et base GeoLite2 (~60 Mo, téléchargée au démarrage si absente).
@@ -101,8 +122,8 @@ spec:
               value: "true"
             - name: NB_PROXY_ACME_CHALLENGE_TYPE
               value: tls-alpn-01
-            # Certificat wildcard *.proxy.ffd.link (ffd-link-tls, cert-manager
-            # DNS-01, répliqué dans le namespace) : utilisé en priorité pour
+            # Certificat wildcard *.proxy.ffd.link (netbird-proxy-tls, cert-manager
+            # DNS-01, Certificate ci-dessus) : utilisé en priorité pour
             # <service>.proxy.ffd.link, rechargé à chaque renouvellement. ACME
             # (TLS-ALPN-01) ne sert plus qu'aux domaines personnalisés.
             - name: NB_PROXY_WILDCARD_CERT_DIR
@@ -193,12 +214,12 @@ spec:
         # Paire <nom>.crt / <nom>.key attendue par NB_PROXY_WILDCARD_CERT_DIR
         - name: wildcard-cert
           secret:
-            secretName: ffd-link-tls
+            secretName: netbird-proxy-tls
             items:
               - key: tls.crt
-                path: ffd-link.crt
+                path: proxy-ffd-link.crt
               - key: tls.key
-                path: ffd-link.key
+                path: proxy-ffd-link.key
 ---
 apiVersion: v1
 kind: Service
