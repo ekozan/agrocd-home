@@ -1,5 +1,13 @@
 ---
 # Wildcard *.ffd.link émis par Let's Encrypt (ClusterIssuer "prod", DNS-01 OVH).
+#
+# ⚠️ Ne PAS y remettre *.proxy.ffd.link : ce certificat est servi par Traefik.
+# S'il couvrait aussi *.proxy.ffd.link, le navigateur réutiliserait sa connexion
+# HTTP/2 déjà ouverte vers un hôte *.ffd.link (même IP, certificat valide :
+# « connection coalescing ») pour <service>.proxy.ffd.link. La requête
+# arriverait alors aux routers HTTP de Traefik au lieu du passthrough SNI vers
+# le proxy NetBird → « 404 page not found ». Le proxy a son propre certificat
+# (infra/netbird/proxy.yaml).
 
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -17,7 +25,6 @@ spec:
   dnsNames:
     - "ffd.link"
     - "*.ffd.link"
-    - "*.proxy.ffd.link"
   secretTemplate:
     annotations:
       replicator.v1.mittwald.de/replicate-to: ".*"
