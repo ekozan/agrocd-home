@@ -41,6 +41,16 @@ spec:
           - name: crowdsec-ban-page
             mountPath: /etc/traefik/crowdsec
             type: configMap
+        # Flux gRPC longue durée (NetBird : management, signal, reverse
+        # proxy) : depuis Traefik v3, readTimeout vaut 60 s par défaut et coupe
+        # ces streams toutes les minutes (« RST_STREAM INTERNAL_ERROR »). Pas de
+        # limite de lecture ni d'inactivité sur websecure (recommandation NetBird).
+        ports:
+          websecure:
+            transport:
+              respondingTimeouts:
+                readTimeout: 0
+                idleTimeout: 0
         service:
             spec:
               type: LoadBalancer
