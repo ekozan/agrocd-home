@@ -28,6 +28,10 @@ spec:
           env:
             - name: AUTH_AUTHORITY
               value: https://idp.ffd.link
+            # Obligatoire (sinon init_react_envs échoue et le dashboard sert
+            # des « $NETBIRD_… » non remplacés) : audience = client ID Zitadel.
+            - name: AUTH_AUDIENCE
+              value: "301166795920835005"
             - name: AUTH_REDIRECT_URI
               value: /auth
             - name: AUTH_SILENT_REDIRECT_URI
