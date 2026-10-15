@@ -7,14 +7,21 @@
 # (image :latest, clé d'enrôlement en clair, aucun état persistant). Après le
 # premier démarrage de celui-ci : `kubectl -n default delete deploy netbird`.
 #
-# Wave 2 : si la clé n'est pas encore dans OpenBao, seul le routeur attend ;
+# Enrôlement automatique : au premier démarrage (PVC vide), l'initContainer
+# crée lui-même une clé d'enrôlement à usage unique (valable 24 h) via l'API
+# du management, avec un jeton d'accès personnel (PAT) lu dans OpenBao. Une
+# fois enregistré, le pair garde son identité sur le PVC et aucune clé n'est
+# plus utilisée.
+#
+# Wave 2 : si le PAT n'est pas encore dans OpenBao, seul le routeur attend ;
 # le serveur NetBird (wave 0) et le proxy (wave 1) sont déjà en place.
 ---
-# Clé d'enrôlement (setup key) : kv/kubernetes/netbird/router, propriété setup_key.
+# PAT d'un service user NetBird (rôle admin) : kv/kubernetes/netbird/api,
+# propriété pat (« nbp_… »). Dashboard → Team → Service Users → Create Token.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: netbird-router
+  name: netbird-api
   namespace: netbird
   annotations:
     argocd.argoproj.io/sync-wave: "2"
@@ -24,16 +31,16 @@ spec:
     name: openbao-backend
     kind: ClusterSecretStore
   target:
-    name: netbird-router
+    name: netbird-api
     creationPolicy: Owner
   data:
-    - secretKey: setupKey
+    - secretKey: pat
       remoteRef:
-        key: kubernetes/netbird/router
-        property: setup_key
+        key: kubernetes/netbird/api
+        property: pat
 ---
-# Identité WireGuard du pair (clé privée, config) : conservée entre deux
-# redémarrages, sinon chaque redémarrage réenregistre un nouveau pair.
+# Identité WireGuard du pair (/var/lib/netbird/default.json) : conservée entre
+# deux redémarrages, sinon chaque redémarrage enregistre un nouveau pair.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -70,17 +77,76 @@ spec:
         app: netbird-router
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        # Crée une clé d'enrôlement à usage unique si le pair n'est pas
+        # encore enregistré (pas de default.json sur le PVC).
+        - name: setup-key
+          image: netbirdio/netbird:0.80.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NB_API
+              value: http://netbird-management.netbird.svc.cluster.local/api
+            - name: NB_PAT
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-api
+                  key: pat
+            # Groupe NetBird attribué au pair (routing peer du Network).
+            # Vide = aucun groupe.
+            - name: NB_ROUTER_GROUP
+              value: k8s-routers
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              if [ -s /var/lib/netbird/default.json ]; then
+                echo "Pair déjà enregistré : pas de nouvelle clé."
+                exit 0
+              fi
+              auth="Authorization: Token ${NB_PAT}"
+              groups="[]"
+              if [ -n "${NB_ROUTER_GROUP}" ]; then
+                # ID du groupe par son nom, sans jq : dans la réponse de
+                # /api/groups, "id" précède directement "name".
+                gid=$(wget -qO- --header "$auth" "${NB_API}/groups" \
+                  | sed -n "s/.*\"id\":\"\([^\"]*\)\",\"name\":\"${NB_ROUTER_GROUP}\".*/\1/p")
+                if [ -z "$gid" ]; then
+                  echo "Groupe '${NB_ROUTER_GROUP}' introuvable : le créer dans le dashboard." >&2
+                  exit 1
+                fi
+                groups="[\"${gid}\"]"
+              fi
+              body="{\"name\":\"k8s-router\",\"type\":\"one-off\",\"expires_in\":86400,\"auto_groups\":${groups},\"usage_limit\":1,\"ephemeral\":false}"
+              key=$(wget -qO- --header "$auth" --header "Content-Type: application/json" \
+                --post-data "$body" "${NB_API}/setup-keys" \
+                | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
+              if [ -z "$key" ]; then
+                echo "Échec de création de la clé d'enrôlement." >&2
+                exit 1
+              fi
+              umask 077
+              printf '%s' "$key" > /run/nb/setup-key
+              echo "Clé d'enrôlement à usage unique créée."
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/netbird
+              readOnly: true
+            - name: setup-key
+              mountPath: /run/nb
       containers:
         - name: netbird
           # Même version que le serveur (management.yaml).
           image: netbirdio/netbird:0.80.0
           imagePullPolicy: IfNotPresent
+          # Clé créée par l'initContainer (premier démarrage uniquement)
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              if [ -s /run/nb/setup-key ]; then
+                export NB_SETUP_KEY="$(cat /run/nb/setup-key)"
+              fi
+              exec /usr/local/bin/netbird-entrypoint.sh
           env:
-            - name: NB_SETUP_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: netbird-router
-                  key: setupKey
             - name: NB_HOSTNAME
               value: netbird-k8s-router
             - name: NB_MANAGEMENT_URL
@@ -100,7 +166,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/netbird
+            - name: setup-key
+              mountPath: /run/nb
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: netbird-router-data
+        - name: setup-key
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
