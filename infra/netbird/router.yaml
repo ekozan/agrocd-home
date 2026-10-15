@@ -90,6 +90,9 @@ spec:
             # Garder le DNS du cluster (CoreDNS) : sinon le client remplace le
             # resolv.conf du pod et le routeur ne résout plus les noms
             # <svc>.<ns>.svc.cluster.local (ressources « Domain », cibles du proxy).
+            # Lue au premier enregistrement puis gardée dans la config du PVC
+            # (DisableDNS). Sur un pair déjà enregistré, l'appliquer une fois :
+            #   netbird down && netbird up --disable-dns
             - name: NB_DISABLE_DNS
               value: "true"
           # Interface WireGuard noyau + routage/masquerade vers le cluster
