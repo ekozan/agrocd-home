@@ -31,8 +31,6 @@ spec:
     helm:
       releaseName: gitea
       valuesObject: 
-        image:
-          tag: 1.25.3
         ingress:
           enabled: true
           # Protection CrowdSec (bouncer + AppSec) sur Gitea
