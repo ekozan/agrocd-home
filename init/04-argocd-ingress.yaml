@@ -1,5 +1,8 @@
 # Exposition de l'UI / API ArgoCD sur https://argocd.ffd.link via Traefik. Accès
-# restreint au LAN + NetBird (middleware traefik/local-only).
+# restreint au LAN + NetBird (middleware traefik/local-only). Accès distant
+# depuis un navigateur : argocd.proxy.ffd.link (reverse proxy NetBird, SSO
+# Zitadel ; cf. infra/netbird/README.md « Services exposés »). Cette route
+# reste nécessaire pour la CLI `argocd` (gRPC), qui ne passe pas le SSO.
 #
 # Pourquoi « Internal Server Error » :
 # argocd-server (install par défaut, sans `server.insecure`) ne sert QUE du

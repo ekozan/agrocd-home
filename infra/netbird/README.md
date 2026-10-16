@@ -153,6 +153,29 @@ la prise en charge CrowdSec.
   `enforce`, tant que le bouncer n'a pas fait sa première synchro avec le LAPI,
   tout est refusé : commencer par `observe`.
 
+## Services exposés
+
+Configurés dans le dashboard (*Reverse Proxy → Services*), pas dans Git. Les
+routes Traefik `*.ffd.link` correspondantes restent limitées au LAN/VPN
+(`local-only`) : depuis Internet, seul le proxy (SSO Zitadel) y donne accès.
+
+| Service | Cible NetBird-Only (*Proxy Cluster*) | Cible publique (*Resource*) | Route Traefik |
+|---|---|---|---|
+| `argocd.proxy.ffd.link` | `https://argocd-server.argocd.svc.cluster.local:443` (skip TLS verify) | ClusterIP d'`argocd-server`, 443 | `argocd.ffd.link` (`local-only`, CLI) |
+| `crowdsec.proxy.ffd.link` | `http://crowdsec-web-ui.crowdsec.svc.cluster.local:3000` | ClusterIP de `crowdsec-web-ui`, 3000 | `crowdsec.ffd.link` (`local-only`) |
+| `kasm.proxy.ffd.link` | Service proxy de Kasm (`kubectl -n kasm get svc`) | ClusterIP de ce Service | `kasm.ffd.link` (`local-only`) |
+| `home.proxy.ffd.link` | — | Peer `homeassistant` | — |
+
+- Le namespace `crowdsec` est en default-deny : `allow-netbird-to-web-ui`
+  (infra/crowdsec-ui/) ouvre l'UI au proxy et au routeur. Un autre backend en
+  default-deny a besoin de la même règle (pods `app in (netbird-proxy,
+  netbird-router)` du namespace `netbird`).
+- Une cible publique *Resource* doit être une ressource **IP** (hôte ou
+  sous-réseau) : une ressource domaine donne « invalid IP » (0.80 ; demande
+  ouverte : netbirdio/netbird Discussion #7915).
+- L'UI CrowdSec n'a pas d'auth propre : ne jamais l'exposer sans SSO (ou
+  NetBird-Only).
+
 ## Notes
 
 - **Pas de CrowdSec Traefik sur `*.proxy.ffd.link`** : en passthrough, Traefik ne
