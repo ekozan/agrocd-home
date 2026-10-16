@@ -146,7 +146,8 @@ la prise en charge CrowdSec.
   Le proxy joint le backend par le tunnel WireGuard, il faut donc un pair (ou
   routing peer) qui atteint ce backend.
 - **NetBird-Only** (joignable seulement par les pairs NetBird) : cible
-  **Proxy Cluster** et hôte `<svc>.<ns>.svc.cluster.local`. Le proxy tourne
+  **Proxy Cluster** et hôte `<svc>.<ns>.svc.cluster.local` (ou la ClusterIP
+  si le nom pose problème, cf. « Services exposés »). Le proxy tourne
   dans le cluster et joint le service directement, sans pair supplémentaire.
   Nécessite `NB_PROXY_PRIVATE=true` (activé).
 - **CrowdSec** : à activer par service (Access Control → enforce/observe). En
@@ -159,20 +160,32 @@ Configurés dans le dashboard (*Reverse Proxy → Services*), pas dans Git. Les
 routes Traefik `*.ffd.link` correspondantes restent limitées au LAN/VPN
 (`local-only`) : depuis Internet, seul le proxy (SSO Zitadel) y donne accès.
 
-| Service | Cible NetBird-Only (*Proxy Cluster*) | Cible publique (*Resource*) | Route Traefik |
-|---|---|---|---|
-| `argocd.proxy.ffd.link` | `https://argocd-server.argocd.svc.cluster.local:443` (skip TLS verify) | ClusterIP d'`argocd-server`, 443 | `argocd.ffd.link` (`local-only`, CLI) |
-| `crowdsec.proxy.ffd.link` | `http://crowdsec-web-ui.crowdsec.svc.cluster.local:3000` | ClusterIP de `crowdsec-web-ui`, 3000 | `crowdsec.ffd.link` (`local-only`) |
-| `kasm.proxy.ffd.link` | Service proxy de Kasm (`kubectl -n kasm get svc`) | ClusterIP de ce Service | `kasm.ffd.link` (`local-only`) |
-| `home.proxy.ffd.link` | — | Peer `homeassistant` | — |
+Les cibles sont des ressources **IP** (ClusterIP du Service, ressource hôte
+`/32` du Network routé par `netbird-k8s-router`). Les cibles par nom de domaine
+ne fonctionnent pas en 0.80 : une ressource domaine donne « invalid IP »
+(demande ouverte : netbirdio/netbird Discussion #7915).
 
+| Service | Cible (Resource) | Route Traefik |
+|---|---|---|
+| `argocd.proxy.ffd.link` | ClusterIP `argocd/argocd-server`, `https` 443 (skip TLS verify) | `argocd.ffd.link` (`local-only`, CLI) |
+| `crowdsec.proxy.ffd.link` | ClusterIP `crowdsec/crowdsec-web-ui`, `http` 3000 | `crowdsec.ffd.link` (`local-only`) |
+| `kasm.proxy.ffd.link` | ClusterIP du Service proxy de Kasm (`kubectl -n kasm get svc`) | `kasm.ffd.link` (`local-only`) |
+| `home.proxy.ffd.link` | Peer `homeassistant` | — |
+
+```bash
+# ClusterIP à reporter dans les ressources du Network
+kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.clusterIP}{"\n"}'
+kubectl -n crowdsec get svc crowdsec-web-ui -o jsonpath='{.spec.clusterIP}{"\n"}'
+kubectl -n kasm get svc
+```
+
+- ⚠️ Une ClusterIP ne change que si le Service est **supprimé puis recréé**
+  (réinstallation d'ArgoCD, renommage, chart qui recrée le Service) : mettre
+  alors à jour la ressource du Network, sinon « Destination Unreachable ».
 - Le namespace `crowdsec` est en default-deny : `allow-netbird-to-web-ui`
-  (infra/crowdsec-ui/) ouvre l'UI au proxy et au routeur. Un autre backend en
+  (infra/crowdsec-ui/) ouvre l'UI au routeur (et au proxy). Un autre backend en
   default-deny a besoin de la même règle (pods `app in (netbird-proxy,
   netbird-router)` du namespace `netbird`).
-- Une cible publique *Resource* doit être une ressource **IP** (hôte ou
-  sous-réseau) : une ressource domaine donne « invalid IP » (0.80 ; demande
-  ouverte : netbirdio/netbird Discussion #7915).
 - L'UI CrowdSec n'a pas d'auth propre : ne jamais l'exposer sans SSO (ou
   NetBird-Only).
 
