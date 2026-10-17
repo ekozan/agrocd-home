@@ -2,8 +2,8 @@
 
 | Composant | URL | Image |
 |-----------|-----|-------|
-| Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.80.0`, `netbirdio/dashboard:v2.94.0` |
-| Reverse proxy NetBird | `https://*.proxy.ffd.link` | `netbirdio/reverse-proxy:0.80.0` |
+| Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.81.2`, `netbirdio/dashboard:v2.95.0` |
+| Reverse proxy NetBird | `https://*.proxy.ffd.link` | `netbirdio/reverse-proxy:0.81.2` |
 
 Déployé par l'Application ArgoCD `netbird` (`infra/13-netbird.yaml`, sync-wave 13),
 en manifests bruts (ex-chart `totmicro/netbird` 1.8.2, plus publié depuis
@@ -162,7 +162,7 @@ routes Traefik `*.ffd.link` correspondantes restent limitées au LAN/VPN
 
 Les cibles sont des ressources **IP** (ClusterIP du Service, ressource hôte
 `/32` du Network routé par `netbird-k8s-router`). Les cibles par nom de domaine
-ne fonctionnent pas en 0.80 : une ressource domaine donne « invalid IP »
+ne fonctionnent pas (constaté en 0.80) : une ressource domaine donne « invalid IP »
 (demande ouverte : netbirdio/netbird Discussion #7915).
 
 | Service | Cible (Resource) | Route Traefik |
