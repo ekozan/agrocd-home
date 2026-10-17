@@ -229,9 +229,10 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
-| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.80.0 | netbird |
-| NetBird dashboard | `netbirdio/dashboard` | v2.94.0 | netbird |
-| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.80.0 | netbird |
+| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.81.2 | netbird |
+| NetBird dashboard | `netbirdio/dashboard` | v2.95.0 | netbird |
+| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.81.2 | netbird |
+| Routeur NetBird (client) | `netbirdio/netbird` | 0.81.2 | netbird |
 
 ---
 

@@ -33,12 +33,13 @@
       "addLabels": ["container-image"]
     },
     {
-      "description": "NetBird : management, signal, relay et reverse proxy dans la même PR (le proxy doit suivre la version du management)",
+      "description": "NetBird : management, signal, relay, reverse proxy et routeur (client) dans la même PR (le proxy doit suivre la version du management)",
       "matchPackageNames": [
         "netbirdio/management",
         "netbirdio/signal",
         "netbirdio/relay",
-        "netbirdio/reverse-proxy"
+        "netbirdio/reverse-proxy",
+        "netbirdio/netbird"
       ],
       "groupName": "netbird"
     },

@@ -24,7 +24,7 @@ spec:
       containers:
         - name: signal
           # Garder le même tag que management, relay et reverse proxy.
-          image: netbirdio/signal:0.80.0
+          image: netbirdio/signal:0.81.2
           imagePullPolicy: IfNotPresent
           args: ["--port", "80", "--log-level", "info", "--log-file", "console"]
           ports:

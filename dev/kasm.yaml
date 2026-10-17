@@ -45,8 +45,12 @@ spec:
             enabled: true
             ingressClassName: traefik
             annotations:
-              # Protection CrowdSec (bouncer + AppSec)
-              traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+              # Protection CrowdSec (bouncer + AppSec) + LAN/VPN uniquement :
+              # l'accès depuis Internet passe par kasm.proxy.ffd.link (reverse
+              # proxy NetBird, SSO Zitadel ; cf. infra/netbird/README.md).
+              # ⚠️ Un Docker Agent hors LAN/VPN qui joint le manager via
+              # kasm.ffd.link serait bloqué : le passer sur NetBird.
+              traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
           certificate:
             # Wildcard *.ffd.link répliqué dans tous les namespaces.
             secretName: ffd-link-tls

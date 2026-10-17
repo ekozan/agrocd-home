@@ -6,6 +6,8 @@
 # (contrairement à l'enrôlement Console). L'appli n'embarque PAS d'auth : elle
 # est exposée derrière Traefik et protégée par les middlewares `crowdsec`
 # (bouncer + AppSec) et `local-only` (réseaux LAN uniquement).
+# Accès distant : crowdsec.proxy.ffd.link (reverse proxy NetBird, SSO Zitadel ;
+# cf. infra/netbird/README.md « Services exposés »).
 #
 # Connexion au LAPI : compte machine `crowdsec-web-ui`. Le Job
 # `crowdsec-ui-register` génère UNE FOIS un mot de passe stable dans le Secret
@@ -313,6 +315,36 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# Accès via le reverse proxy NetBird (crowdsec.proxy.ffd.link) : le proxy
+# (cible « Proxy Cluster », service NetBird-Only) ou le routing peer (cible
+# « Resource », service public) joignent l'UI depuis le namespace netbird.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netbird-to-web-ui
+  namespace: crowdsec
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  podSelector:
+    matchLabels:
+      app: crowdsec-web-ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: netbird
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["netbird-proxy", "netbird-router"]
       ports:
         - protocol: TCP
           port: 3000

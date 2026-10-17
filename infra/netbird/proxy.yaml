@@ -90,7 +90,7 @@ spec:
       containers:
         - name: proxy
           # Même version que le management (management.yaml).
-          image: netbirdio/reverse-proxy:0.80.0
+          image: netbirdio/reverse-proxy:0.81.2
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

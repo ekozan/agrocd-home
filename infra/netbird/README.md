@@ -2,8 +2,8 @@
 
 | Composant | URL | Image |
 |-----------|-----|-------|
-| Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.80.0`, `netbirdio/dashboard:v2.94.0` |
-| Reverse proxy NetBird | `https://*.proxy.ffd.link` | `netbirdio/reverse-proxy:0.80.0` |
+| Dashboard, API, management, signal, relay | `https://netbird.ffd.link` | `netbirdio/{management,signal,relay}:0.81.2`, `netbirdio/dashboard:v2.95.0` |
+| Reverse proxy NetBird | `https://*.proxy.ffd.link` | `netbirdio/reverse-proxy:0.81.2` |
 
 Déployé par l'Application ArgoCD `netbird` (`infra/13-netbird.yaml`, sync-wave 13),
 en manifests bruts (ex-chart `totmicro/netbird` 1.8.2, plus publié depuis
@@ -146,12 +146,48 @@ la prise en charge CrowdSec.
   Le proxy joint le backend par le tunnel WireGuard, il faut donc un pair (ou
   routing peer) qui atteint ce backend.
 - **NetBird-Only** (joignable seulement par les pairs NetBird) : cible
-  **Proxy Cluster** et hôte `<svc>.<ns>.svc.cluster.local`. Le proxy tourne
+  **Proxy Cluster** et hôte `<svc>.<ns>.svc.cluster.local` (ou la ClusterIP
+  si le nom pose problème, cf. « Services exposés »). Le proxy tourne
   dans le cluster et joint le service directement, sans pair supplémentaire.
   Nécessite `NB_PROXY_PRIVATE=true` (activé).
 - **CrowdSec** : à activer par service (Access Control → enforce/observe). En
   `enforce`, tant que le bouncer n'a pas fait sa première synchro avec le LAPI,
   tout est refusé : commencer par `observe`.
+
+## Services exposés
+
+Configurés dans le dashboard (*Reverse Proxy → Services*), pas dans Git. Les
+routes Traefik `*.ffd.link` correspondantes restent limitées au LAN/VPN
+(`local-only`) : depuis Internet, seul le proxy (SSO Zitadel) y donne accès.
+
+Les cibles sont des ressources **IP** (ClusterIP du Service, ressource hôte
+`/32` du Network routé par `netbird-k8s-router`). Les cibles par nom de domaine
+ne fonctionnent pas (constaté en 0.80) : une ressource domaine donne « invalid IP »
+(demande ouverte : netbirdio/netbird Discussion #7915).
+
+| Service | Cible (Resource) | Route Traefik |
+|---|---|---|
+| `argocd.proxy.ffd.link` | ClusterIP `argocd/argocd-server`, `https` 443 (skip TLS verify) | `argocd.ffd.link` (`local-only`, CLI) |
+| `crowdsec.proxy.ffd.link` | ClusterIP `crowdsec/crowdsec-web-ui`, `http` 3000 | `crowdsec.ffd.link` (`local-only`) |
+| `kasm.proxy.ffd.link` | ClusterIP du Service proxy de Kasm (`kubectl -n kasm get svc`) | `kasm.ffd.link` (`local-only`) |
+| `home.proxy.ffd.link` | Peer `homeassistant` | — |
+
+```bash
+# ClusterIP à reporter dans les ressources du Network
+kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.clusterIP}{"\n"}'
+kubectl -n crowdsec get svc crowdsec-web-ui -o jsonpath='{.spec.clusterIP}{"\n"}'
+kubectl -n kasm get svc
+```
+
+- ⚠️ Une ClusterIP ne change que si le Service est **supprimé puis recréé**
+  (réinstallation d'ArgoCD, renommage, chart qui recrée le Service) : mettre
+  alors à jour la ressource du Network, sinon « Destination Unreachable ».
+- Le namespace `crowdsec` est en default-deny : `allow-netbird-to-web-ui`
+  (infra/crowdsec-ui/) ouvre l'UI au routeur (et au proxy). Un autre backend en
+  default-deny a besoin de la même règle (pods `app in (netbird-proxy,
+  netbird-router)` du namespace `netbird`).
+- L'UI CrowdSec n'a pas d'auth propre : ne jamais l'exposer sans SSO (ou
+  NetBird-Only).
 
 ## Notes
 
