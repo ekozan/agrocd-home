@@ -122,9 +122,12 @@ spec:
               # d'un seuil → équilibre couverture / faux positifs. Les exclusions
               # Nextcloud/WebDAV (plugin crs-exclusion-plugin-nextcloud) sont
               # incluses automatiquement par le CRS → pas de FP sur /remote.php/.
+              # Règles crowdsecurity/experimental-* volontairement NON chargées :
+              # non éprouvées, faux positifs fréquents (ex. experimental-no-user-agent
+              # sur les rappels WOPI / clients sync) qui alimentaient la corrélation
+              # out-of-band → bans d'IP légitimes.
               outofband_rules:
                 - crowdsecurity/crs
-                - crowdsecurity/experimental-*
               # Exclusions ciblées : le CRS out-of-band (OWASP CRS) produit des
               # faux positifs sur du trafic applicatif légitime que le pack ne
               # sait pas modéliser. On les retire par CHEMIN via pre_eval, sans
@@ -179,13 +182,6 @@ spec:
                 - filter: "IsOutBand == true && (req.URL.Path endsWith '/git-upload-pack' || req.URL.Path endsWith '/git-receive-pack' || req.URL.Path endsWith '/info/refs')"
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
-              # Désactive UNE règle experimental (on garde les autres experimental-*) :
-              # experimental-no-user-agent flague toute requête sans en-tête
-              # User-Agent → faux positifs (rappels WOPI internes, clients API/sync,
-              # sondes, curl…). RemoveOutBandRuleByName la retire au chargement.
-              on_load:
-                - apply:
-                    - RemoveOutBandRuleByName("crowdsecurity/experimental-no-user-agent")
               on_match:
                 # Whitelist 10.5.0.1 : gateway OPNsense sur laquelle hairpine tout le
                 # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
