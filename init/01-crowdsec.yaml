@@ -182,6 +182,17 @@ spec:
                 - filter: "IsOutBand == true && (req.URL.Path endsWith '/git-upload-pack' || req.URL.Path endsWith '/git-receive-pack' || req.URL.Path endsWith '/info/refs')"
                   apply:
                     - RemoveOutBandRuleByTag("OWASP_CRS")
+                # --- Kasm Docker Agent → manager (/manager_api/) ---
+                # Heartbeat des agents : JSON d'inventaire Docker (docker_info,
+                # docker_images, docker_networks…). Les NOMS de champs contiennent
+                # ".docker" → 930120 (LFI) déclenché sur chaque clé (score ~1375),
+                # et "name=seccomp,profile=builtin" → 932260 (RCE) → ban de l'agent
+                # à chaque heartbeat. API machine-à-machine authentifiée par token
+                # d'agent → on retire tout le CRS UNIQUEMENT sur ce préfixe ; l'UI
+                # Kasm et /api/ restent inspectées.
+                - filter: "IsOutBand == true && req.URL.Path startsWith '/manager_api/'"
+                  apply:
+                    - RemoveOutBandRuleByTag("OWASP_CRS")
               on_match:
                 # Whitelist 10.5.0.1 : gateway OPNsense sur laquelle hairpine tout le
                 # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
