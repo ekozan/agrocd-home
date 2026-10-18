@@ -15,6 +15,7 @@ Kubernetes Cluster
 ├── Dev             → Kasm Workspaces (VDI) — Coder désactivé
 ├── AI/LLM          → LiteLLM (proxy API multi-modèles)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
+├── Notifications   → Apprise API (passerelle de notifications → salon Matrix)
 ├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
 └── VPN             → NetBird (overlay WireGuard) + reverse proxy NetBird
 ```
@@ -33,6 +34,7 @@ Kubernetes Cluster
 | CrowdSec (UI web) | `https://crowdsec.ffd.link` (LAN uniquement) |
 | MatrixRTC (Element Call) | `https://matrix-rtc.ffd.link` (média via LoadBalancer MetalLB : UDP `7882` / TCP `7881`) |
 | Well-known fédération | `https://ffd.link/.well-known/matrix` |
+| Apprise (notifications → Matrix) | `https://apprise.ffd.link` (LAN uniquement) |
 | OxiCloud (stockage) | `https://cloud.ffd.link` |
 | Euro-Office (édition docs) | `https://office.ffd.link` |
 | NetBird (dashboard, management, signal, relay) | `https://netbird.ffd.link` |
@@ -89,7 +91,7 @@ kubectl apply -f infra.yaml
 # 3. Services dev (Coder, LiteLLM)
 kubectl apply -f dev.yaml
 
-# 4. Chat (Matrix + Element Web)
+# 4. Chat (Matrix + Element Web + Apprise)
 kubectl apply -f chat.yaml
 ```
 
@@ -193,7 +195,8 @@ agrocd-home/
 │
 └── chat/
     ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
-    └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
+    ├── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
+    └── apprise.yaml            # Apprise API — notifications → salon Matrix (NS, ExternalSecret, Deployment, Service, Ingress LAN, NetworkPolicies)
 ```
 
 > **Convention de nommage** : les fichiers dans `infra/` sont préfixés par leur numéro de wave (`00-`, `01-`, etc.) avec un tiret. Éviter les espaces dans les noms de fichiers.
@@ -227,12 +230,68 @@ agrocd-home/
 | Application | Image | Version | Namespace |
 |-------------|-------|---------|-----------|
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
+| Apprise API | `caronc/apprise` | 2.0.1 | apprise |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
 | NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.81.2 | netbird |
 | NetBird dashboard | `netbirdio/dashboard` | v2.95.0 | netbird |
 | Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.81.2 | netbird |
 | Routeur NetBird (client) | `netbirdio/netbird` | 0.81.2 | netbird |
+
+---
+
+## Notifications (Apprise → Matrix)
+
+[Apprise API](https://github.com/caronc/apprise-api) (`chat/apprise.yaml`) reçoit
+les notifications des applis et les relaie dans un salon Matrix **« Alertes »**
+via un compte bot Tuwunel ; le push arrive sur iOS via Element X. Pour ajouter
+une autre destination plus tard (ntfy, e-mail…), il suffit de modifier la config
+Apprise et `APPRISE_ALLOW_SERVICES`, sans toucher aux applis.
+
+### Mise en place (une fois)
+
+1. **Créer le bot** — dans le salon admin de Tuwunel :
+   ```
+   !admin users create-user apprise
+   ```
+   (le mot de passe généré est affiché), puis récupérer un token d'accès :
+   ```bash
+   curl -sS -X POST https://matrix.ffd.link/_matrix/client/v3/login \
+     -H 'Content-Type: application/json' \
+     -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"apprise"},"password":"<mot de passe>","initial_device_display_name":"apprise"}'
+   ```
+   → champ `access_token`.
+2. **Créer le salon « Alertes »** (Element Web : *Nouveau salon*), **chiffrement
+   désactivé** : Apprise tourne avec `e2ee=no` (sa config est éphémère, il
+   perdrait ses clés à chaque redémarrage). Inviter `@apprise:ffd.link` : le bot
+   rejoint tout seul au premier envoi. Relever l'**ID complet** du salon
+   (*Paramètres → Avancé*, ex. `!AbCdEf:ffd.link`).
+3. **Stocker le secret** dans OpenBao :
+   ```bash
+   bao kv put kv/kubernetes/apprise/matrix token='<access_token>' room='!AbCdEf:ffd.link'
+   ```
+   Après un changement du secret, redémarrer le pod
+   (`kubectl -n apprise rollout restart deploy/apprise`) : la config est lue au
+   démarrage.
+4. **Tester** depuis le LAN :
+   ```bash
+   curl -X POST -d 'title=Test&body=Coucou depuis Apprise' https://apprise.ffd.link/notify/
+   ```
+
+### Brancher une appli
+
+| Appli | Réglage |
+|-------|---------|
+| Sonarr / Radarr / Prowlarr / Lidarr… | *Settings → Connect → Apprise* : Server URL `https://apprise.ffd.link`, Configuration Key `alertes`, Tags `matrix` |
+| Appli supportant les URL Apprise (Uptime Kuma, Home Assistant…) | `apprises://apprise.ffd.link/alertes/?tags=matrix` |
+| Script / webhook générique | `POST https://apprise.ffd.link/notify/` (champs `title`, `body`) |
+| Pod du cluster | `http://apprise.apprise.svc:8000/notify/` |
+
+> **Sécurité** : Apprise n'a pas d'authentification activée → Ingress **LAN
+> uniquement** (`local-only`) + CrowdSec. Seuls les schémas `matrix://` /
+> `matrixs://` sont acceptés (pas de relais vers des URL arbitraires), la config
+> (qui contient le token du bot) n'est ni relisible ni modifiable via l'API
+> (`APPRISE_CONFIG_LOCK`), et les pièces jointes sont désactivées.
 
 ---
 
@@ -394,6 +453,7 @@ Le plugin n'expose qu'**une seule** option de page, mais le fichier est rendu co
 | `matrix-rtc.ffd.link` (MatrixRTC) | `chat/element-call.yaml` |
 | `cloud.ffd.link` (OxiCloud) | `infra/oxicloud/oxicloud.yaml` |
 | `office.ffd.link` (Euro-Office) | `infra/euro-office/euro-office.yaml` |
+| `apprise.ffd.link` (Apprise, LAN uniquement) | `chat/apprise.yaml` |
 
 > LiteLLM n'expose pas d'Ingress public (accès interne uniquement) → hors périmètre.
 >

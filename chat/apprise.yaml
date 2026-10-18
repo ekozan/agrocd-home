@@ -1,0 +1,280 @@
+# Apprise API — passerelle de notifications vers Matrix (salon « Alertes »).
+#
+# Les applis (suite *arr, Uptime Kuma, Home Assistant, scripts, CI…) envoient
+# leurs notifications à Apprise, qui les relaie dans un salon Matrix via un
+# compte bot Tuwunel ; Element X (iOS) affiche le push. Changer de destination
+# (ntfy, e-mail…) ne touche que ce fichier, pas les applis.
+#
+# Points d'entrée (cf. README « Notifications (Apprise → Matrix) ») :
+#   - POST /notify/alertes  + tag `matrix` → config par clé (suite *arr, etc.) ;
+#   - POST /notify/                        → URL par défaut (curl, scripts).
+#
+# Durcissement :
+#   - APPRISE_ALLOW_SERVICES=matrix,matrixs : seuls les schémas Matrix sont
+#     acceptés → pas de SSRF via des URL arbitraires passées dans la requête ;
+#   - APPRISE_CONFIG_LOCK : la config (qui contient le token du bot) n'est
+#     jamais relisible via l'API (/get, /cfg, /json/urls → 403), et elle n'est
+#     pas modifiable (/add, /del) ; STRICT_MODE ; API seule (pas d'UI web) ;
+#   - pas de pièces jointes ; non-root + rootfs en lecture seule ;
+#   - Ingress LAN uniquement (local-only) + CrowdSec.
+#
+# Prérequis manuels (bot Tuwunel + secret OpenBao) : voir README.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apprise
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# ExternalSecret — génère la config Apprise à partir du token du bot et de
+# l'ID du salon stockés dans OpenBao (kv/kubernetes/apprise/matrix).
+#
+# Options de l'URL Matrix :
+#   - discovery=no : pas de résolution .well-known, l'hôte est donné tel quel ;
+#   - hsreq=no     : l'ID de salon est utilisé tel quel (ID complet attendu,
+#                    ex. !abc:ffd.link — sinon Apprise suffixerait
+#                    :matrix.ffd.link, qui n'est pas le server_name) ;
+#   - e2ee=no      : pas de chiffrement (les clés Olm seraient perdues à chaque
+#                    redémarrage, /config étant éphémère) → salon NON chiffré.
+# msgtype reste `text` (défaut) : les `notice` sont muettes par défaut côté
+# push Matrix (règle .m.rule.suppress_notices).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: apprise-config
+  namespace: apprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: apprise-config
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        matrix_url: "matrixs://{{ .token }}@matrix.ffd.link/{{ .room }}?discovery=no&hsreq=no&e2ee=no"
+        # Config par clé : POST /notify/alertes. Avec APPRISE_CONFIG_LOCK, un
+        # appelant non-admin doit cibler un tag → `matrix`.
+        alertes.yml: |
+          urls:
+            - "matrixs://{{ .token }}@matrix.ffd.link/{{ .room }}?discovery=no&hsreq=no&e2ee=no":
+                - tag: matrix
+  data:
+    - secretKey: token
+      remoteRef:
+        key: kubernetes/apprise/matrix
+        property: token
+    - secretKey: room
+      remoteRef:
+        key: kubernetes/apprise/matrix
+        property: room
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apprise
+  namespace: apprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apprise
+  template:
+    metadata:
+      labels:
+        app: apprise
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # L'image gère le démarrage non-root (supervisord → nginx + gunicorn) ;
+      # tout l'état d'exécution est écrit sous /tmp/apprise.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: apprise
+          image: caronc/apprise:2.0.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: TZ
+              value: Europe/Paris
+            # Socket de contrôle gunicorn sous $HOME (rootfs en lecture seule)
+            - name: HOME
+              value: /tmp
+            # nginx écoute aussi sur [::] par défaut → échec si IPv6 absent
+            - name: IPV4_ONLY
+              value: "yes"
+            - name: STRICT_MODE
+              value: "yes"
+            - name: APPRISE_API_ONLY
+              value: "yes"
+            # Config par clé lue depuis /config (fichier monté depuis le Secret)
+            - name: APPRISE_STATEFUL_MODE
+              value: simple
+            - name: APPRISE_CONFIG_LOCK
+              value: "yes"
+            - name: APPRISE_ADMIN
+              value: "no"
+            - name: APPRISE_ALLOW_SERVICES
+              value: matrix,matrixs
+            - name: APPRISE_ATTACH_SIZE
+              value: "0"
+            - name: APPRISE_WORKER_COUNT
+              value: "1"
+            - name: APPRISE_STATELESS_URLS
+              valueFrom:
+                secretKeyRef:
+                  name: apprise-config
+                  key: matrix_url
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /config
+            - name: config-file
+              mountPath: /config/alertes.yml
+              subPath: alertes.yml
+              readOnly: true
+            - name: attach
+              mountPath: /attach
+            - name: plugin
+              mountPath: /plugin
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          emptyDir: {}
+        - name: config-file
+          secret:
+            secretName: apprise-config
+            items:
+              - key: alertes.yml
+                path: alertes.yml
+        - name: attach
+          emptyDir: {}
+        - name: plugin
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apprise
+  namespace: apprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: apprise
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+# Ingress apprise.ffd.link — pour les applis hors cluster (suite *arr sur le
+# NAS, Home Assistant…). Apprise n'a pas d'auth activée : LAN uniquement.
+# Les applis du cluster passent par http://apprise.apprise.svc:8000.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apprise
+  namespace: apprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # CrowdSec (bouncer + AppSec) + accès LAN uniquement
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: apprise.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apprise
+                port:
+                  number: 8000
+  tls:
+    - secretName: ffd-link-tls
+      hosts:
+        - apprise.ffd.link
+---
+# NetworkPolicies — default-deny ingress, puis seuls Traefik et les pods du
+# cluster (tous namespaces) peuvent joindre l'API sur 8000. Posées ici (et non
+# dans infra/network-policies) car le namespace est créé par l'app chat.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: apprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cluster-to-api
+  namespace: apprise
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  podSelector:
+    matchLabels:
+      app: apprise
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8000
