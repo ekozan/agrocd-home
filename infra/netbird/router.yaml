@@ -73,7 +73,7 @@ spec:
       containers:
         - name: netbird
           # Même version que le serveur (management.yaml).
-          image: netbirdio/netbird:0.81.2
+          image: netbirdio/netbird:0.82.0
           imagePullPolicy: IfNotPresent
           env:
             - name: NB_SETUP_KEY
