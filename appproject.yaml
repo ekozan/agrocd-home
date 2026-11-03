@@ -38,6 +38,7 @@ spec:
     - https://aureq.github.io/cert-manager-webhook-ovh/
     - oci://docker.litellm.ai/berriai/litellm-helm
     - https://helm.kasm.com
+    - ghcr.io/netbirdio/helm-charts
 
   # Seul le cluster local est une destination valide (tous namespaces).
   destinations:

@@ -1,0 +1,88 @@
+# Opérateur Kubernetes NetBird : routing peers en pods, gérés par des CRD.
+#
+# Un NetworkRouter (infra/netbird-operator/networkrouter.yaml) déploie un
+# routing peer NetBird ; chaque NetworkResource publie un Service ClusterIP
+# dans le Network NetBird, avec un enregistrement DNS
+# <service>.<namespace>.k8s.internal. On joint ainsi un Service (et ses pods)
+# depuis un poste NetBird, sans ingress ni route vers tout le CIDR du cluster.
+#
+# Deux sources :
+#   - le chart Helm de l'opérateur (OCI ghcr.io), CRD comprises ;
+#   - infra/netbird-operator/ : clé API (ExternalSecret OpenBao), Group et
+#     NetworkRouter.
+#
+# Mise en place (service user + clé API, zone DNS, policy) :
+# infra/netbird-operator/README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: netbird-operator
+  namespace: argocd
+  annotations:
+    # Après NetBird (wave 13) : l'opérateur parle à l'API du management.
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    # Namespace de l'app `netbird` (créé et labellisé PSA par celle-ci).
+    namespace: netbird
+  sources:
+    - chart: netbird-operator
+      repoURL: ghcr.io/netbirdio/helm-charts
+      targetRevision: 0.9.0
+      helm:
+        releaseName: netbird-operator
+        valuesObject:
+          # API du management auto-hébergé (défaut : NetBird Cloud).
+          managementURL: https://netbird.ffd.link
+          netbirdAPI:
+            keyFromSecret:
+              name: netbird-mgmt-api-key
+              key: NB_API_KEY
+          cluster:
+            # Préfixe des noms de Networks / ressources créés dans NetBird.
+            name: homelab
+          webhook:
+            # cert-manager est déjà installé (infra/01 certmanager.yaml).
+            enableCertManager: true
+            # Le webhook de mutation porte sur TOUS les pods du cluster (injection
+            # de sidecar). `Fail` (défaut) bloquerait la création de pods
+            # partout si l'opérateur est indisponible : on passe en `Ignore`.
+            failurePolicy: Ignore
+            namespaceSelectors:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values: ["kube-system"]
+          operator:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+          # Mode `ingress` (NBRoutingPeer, annotations de Service) déprécié :
+          # on utilise NetworkRouter / NetworkResource.
+          ingress:
+            enabled: false
+          gatewayAPI:
+            enabled: false
+    - repoURL: https://github.com/ekozan/agrocd-home.git
+      targetRevision: HEAD
+      path: infra/netbird-operator
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      # CRD volumineuses : évite "metadata.annotations: Too long".
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 3m0s
+        factor: 2

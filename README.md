@@ -123,6 +123,7 @@ L'infrastructure est déployée en vagues successives grâce à l'annotation `ar
 | `11` | Euro-Office (`office.ffd.link`) |
 | `12` | Resource Policies — LimitRanges + PriorityClasses (app `./init`) |
 | `13` | NetBird + reverse proxy (`netbird.ffd.link`, `*.proxy.ffd.link`) |
+| `14` | Opérateur NetBird (routing peer `k8s`, Services ClusterIP via `*.k8s.internal`) |
 
 Les services dev (Coder, LiteLLM) et chat (Matrix) sont gérés indépendamment via `dev.yaml` et `chat.yaml`.
 
@@ -181,7 +182,9 @@ agrocd-home/
 │   ├── 11-euro-office.yaml   # App ArgoCD → ./infra/euro-office (office.ffd.link)
 │   ├── euro-office/          # Euro-Office (ExternalSecret JWT, DB pg-main, PVC, Deployment, Service, Ingress)
 │   ├── 13-netbird.yaml       # App ArgoCD → ./infra/netbird (netbird.ffd.link, *.proxy.ffd.link)
-│   └── netbird/              # NetBird en manifests bruts (management, signal, relay, dashboard, reverse proxy) + ExternalSecrets + README
+│   ├── netbird/              # NetBird en manifests bruts (management, signal, relay, dashboard, reverse proxy) + ExternalSecrets + README
+│   ├── 14-netbird-operator.yaml # App ArgoCD → chart OCI netbird-operator + ./infra/netbird-operator
+│   └── netbird-operator/     # Clé API (ExternalSecret), Group et NetworkRouter de l'opérateur + README
 │
 ├── dev/
 │   ├── kasm.yaml             # App ArgoCD multi-source : chart Helm kasm-helm + ./dev/kasm
@@ -222,6 +225,7 @@ agrocd-home/
 | Coder (*désactivé*) | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+| Opérateur NetBird | OCI `ghcr.io/netbirdio/helm-charts` | 0.9.0 | netbird |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
@@ -229,10 +233,10 @@ agrocd-home/
 | Tuwunel | `ghcr.io/matrix-construct/tuwunel` | v1.7.1 | matrix |
 | OxiCloud | `diocrafts/oxicloud` | 0.8.0 | oxicloud |
 | Euro-Office | `ghcr.io/euro-office/documentserver` | v9.3.2 | euro-office |
-| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.81.2 | netbird |
-| NetBird dashboard | `netbirdio/dashboard` | v2.95.0 | netbird |
-| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.81.2 | netbird |
-| Routeur NetBird (client) | `netbirdio/netbird` | 0.81.2 | netbird |
+| NetBird (management, signal, relay) | `netbirdio/{management,signal,relay}` | 0.82.0 | netbird |
+| NetBird dashboard | `netbirdio/dashboard` | v2.96.0 | netbird |
+| Reverse proxy NetBird | `netbirdio/reverse-proxy` | 0.82.0 | netbird |
+| Routeur NetBird (client) + routing peer de l'opérateur | `netbirdio/netbird` | 0.82.0 | netbird |
 
 ---
 

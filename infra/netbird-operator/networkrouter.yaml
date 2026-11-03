@@ -1,0 +1,39 @@
+# Network NetBird « homelab » et son routing peer, gérés par l'opérateur.
+#
+# Wave 1 : après le chart (CRD + opérateur). SkipDryRunOnMissingResource :
+# au premier sync, les CRD n'existent pas encore au moment du dry-run.
+---
+# Groupe NetBird des Services publiés : les NetworkResource le référencent
+# par son nom (`groups: [{name: k8s-services}]`). La policy d'accès
+# (<groupe des utilisateurs> → k8s-services) se crée dans le dashboard :
+# l'opérateur n'écrit pas de policies.
+apiVersion: netbird.io/v1alpha1
+kind: Group
+metadata:
+  name: k8s-services
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  name: k8s-services
+---
+# Déploie le routing peer (Deployment `networkrouter-k8s`, pods
+# app.kubernetes.io/name=networkrouter) avec sa propre setup key.
+# Enregistrements DNS des ressources : <service>.<namespace>.k8s.internal.
+apiVersion: netbird.io/v1alpha1
+kind: NetworkRouter
+metadata:
+  name: k8s
+  namespace: netbird
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Zone DNS à créer au préalable dans le dashboard (DNS → Zones).
+  dnsZoneRef:
+    name: k8s.internal
+  # Même version que le serveur (infra/netbird/management.yaml) ; suivi par
+  # Renovate dans le groupe `netbird`.
+  image: netbirdio/netbird:0.82.0
+  logLevel: info
