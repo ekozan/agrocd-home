@@ -19,6 +19,10 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "3"
+    # Diff calculé par l'API server (dry-run SSA) : les valeurs par défaut
+    # ajoutées par les contrôleurs (ExternalSecret : conversionStrategy,
+    # decodingStrategy…) ne s'affichent plus en OutOfSync.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
