@@ -13,7 +13,7 @@ Kubernetes Cluster
 ├── Stockage        → Democratic-CSI (TrueNAS NFS/SMB)
 ├── Git & CI/CD     → Gitea + Gitea Act Runner
 ├── Dev             → Kasm Workspaces (VDI) — Coder désactivé
-├── AI/LLM          → LiteLLM (proxy API multi-modèles)
+├── AI/LLM          → LiteLLM (proxy API multi-modèles) + Kelos (agents de code IA)
 ├── Chat            → Tuwunel (homeserver Matrix léger en Rust)
 ├── Bureautique     → OxiCloud (stockage) + Euro-Office (édition docs / WOPI)
 └── VPN             → NetBird (overlay WireGuard) + reverse proxy NetBird
@@ -37,6 +37,7 @@ Kubernetes Cluster
 | Euro-Office (édition docs) | `https://office.ffd.link` |
 | NetBird (dashboard, management, signal, relay) | `https://netbird.ffd.link` |
 | Reverse proxy NetBird | `https://*.proxy.ffd.link` (TLS passthrough Traefik) |
+| Kelos Console | `https://kelos.proxy.ffd.link` (reverse proxy NetBird uniquement) |
 
 ---
 
@@ -188,6 +189,8 @@ agrocd-home/
 │   ├── kasm/                 # Job keygen du Secret kasm-secrets
 │   ├── disabled/coder.yaml   # Coder désactivé (sous-dossier non synchronisé par l'app `dev`)
 │   ├── coder-db.yaml
+│   ├── kelos.yaml            # App ArgoCD multi-source : chart OCI Kelos + ./dev/kelos
+│   ├── kelos/                # Token Console, NetworkPolicy (accès NetBird), agent Claude (kelos-agents) + README
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
 │
@@ -222,6 +225,7 @@ agrocd-home/
 | Coder (*désactivé*) | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
 | LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
+| Kelos | OCI `ghcr.io/kelos-dev/charts` | 0.63.0 | kelos-system |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |

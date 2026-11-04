@@ -1,0 +1,29 @@
+# La Console donne un shell dans les pods des Sessions (workspaces et
+# credentials montés) : seul NetBird (reverse proxy et routing peer) peut la
+# joindre. Le reste de kelos-system n'est pas filtré : le webhook de conversion
+# des CRDs est appelé par l'API server (hors réseau des pods).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netbird-to-console
+  namespace: kelos-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kelos
+      app.kubernetes.io/component: console-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: netbird
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["netbird-proxy", "netbird-router"]
+      ports:
+        - protocol: TCP
+          port: 8080
