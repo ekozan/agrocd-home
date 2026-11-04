@@ -1,0 +1,84 @@
+# Agent Claude Code interactif : Session persistante utilisable depuis la
+# Kelos Console (kelos.proxy.ffd.link, via NetBird) ou `kelos session connect`.
+#
+# Une Session = un dépôt (Workspace). Pour un autre dépôt GitHub : ajouter un
+# Workspace (ici ou depuis la page Admin de la Console) avec
+# `secretRef: github-token`, puis créer une Session depuis la Console.
+#
+# ⚠️ Le spec d'une Session est presque entièrement immuable (workspaceRef,
+# agentConfigRefs, initialBranch, volumeClaimTemplate…) : pour le changer,
+# créer une nouvelle Session (nouveau nom). Modifiables : credentials, model,
+# suspend, idlePolicy, podOverrides.
+#
+# Wave 1 : après les CRDs et le contrôleur du chart (wave 0).
+---
+apiVersion: kelos.dev/v1alpha2
+kind: Workspace
+metadata:
+  name: agrocd-home
+  namespace: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  repo: https://github.com/ekozan/agrocd-home.git
+  ref: main
+  secretRef:
+    name: github-token
+---
+apiVersion: kelos.dev/v1alpha2
+kind: AgentConfig
+metadata:
+  name: claude-homelab
+  namespace: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Ajouté à ~/.claude/CLAUDE.md, en plus des fichiers d'instructions du dépôt.
+  agentsMD: |
+    # Règles de travail
+
+    - Réponds en français.
+    - Ne pousse jamais directement sur `main` (ni sur la branche par défaut) :
+      travaille sur une branche dédiée et ouvre une pull request avec `gh pr create`.
+      Sur agrocd-home, `main` est déployé automatiquement par ArgoCD.
+    - N'écris jamais de secret (token, mot de passe, clé) dans un fichier
+      commité : les dépôts peuvent être publics. Les secrets vivent dans OpenBao.
+    - Avant de pousser, relis le diff et lance les vérifications rapides
+      disponibles (lint, validation YAML, tests).
+---
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: claude
+  namespace: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Branche de travail (créée depuis `main` si absente) : jamais `main`.
+  initialBranch: claude/kelos-session
+  worker:
+    type: claude-code
+    credentials:
+      type: oauth
+      secretRef:
+        name: claude-oauth-token
+    workspaceRef:
+      name: agrocd-home
+    agentConfigRefs:
+      - name: claude-homelab
+  # Workspace persistant : historique de la conversation, état de Claude Code
+  # et modifications du dépôt survivent au remplacement du pod.
+  volumeClaimTemplate:
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: longhorn
+    resources:
+      requests:
+        storage: 10Gi
+  # Libère le pod après 1 h d'inactivité (le PVC est conservé) ; la Session
+  # reprend dès qu'on la sélectionne dans la Console.
+  idlePolicy:
+    suspendAfterSeconds: 3600

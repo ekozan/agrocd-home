@@ -190,7 +190,7 @@ agrocd-home/
 │   ├── disabled/coder.yaml   # Coder désactivé (sous-dossier non synchronisé par l'app `dev`)
 │   ├── coder-db.yaml
 │   ├── kelos.yaml            # App ArgoCD multi-source : chart OCI Kelos + ./dev/kelos
-│   ├── kelos/                # ExternalSecret du token Console, NetworkPolicy (accès NetBird) + README
+│   ├── kelos/                # Token Console, NetworkPolicy (accès NetBird), agent Claude (kelos-agents) + README
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
 │

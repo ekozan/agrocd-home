@@ -1,0 +1,8 @@
+# Namespace des agents (Sessions, Workspaces, AgentConfigs, credentials),
+# séparé du contrôleur (kelos-system). Le contrôleur surveille tout le cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
