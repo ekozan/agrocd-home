@@ -29,8 +29,10 @@ spec:
     # l'objet Namespace quand la release y est installée.
     namespace: kelos-system
   sources:
+    # Chart OCI : ArgoCD 2.x attend le registre SANS préfixe oci:// et un
+    # dépôt déclaré avec enableOCI (dev/oci-repositories.yaml).
     - chart: kelos
-      repoURL: oci://ghcr.io/kelos-dev/charts
+      repoURL: ghcr.io/kelos-dev/charts
       targetRevision: 0.63.0
       helm:
         releaseName: kelos

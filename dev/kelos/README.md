@@ -9,7 +9,7 @@ interactif)…
 | Élément | Valeur |
 |---------|--------|
 | Application ArgoCD | `kelos` (`dev/kelos.yaml`, wave 3, multi-source) |
-| Chart | `oci://ghcr.io/kelos-dev/charts/kelos` 0.63.0 (CRDs incluses) |
+| Chart | `ghcr.io/kelos-dev/charts/kelos` 0.63.0 (OCI, CRDs incluses) — registre déclaré dans `dev/oci-repositories.yaml` |
 | Namespace | `kelos-system` |
 | Console | Service `kelos-console-server` (ClusterIP, port 80 → 8080) |
 | Accès | `https://kelos.proxy.ffd.link` — reverse proxy NetBird uniquement |
@@ -53,7 +53,7 @@ lequel il doit travailler.
 
 ### 3. AppProject
 
-`oci://ghcr.io/kelos-dev/charts` est ajouté à `sourceRepos`. L'AppProject n'est
+`ghcr.io/kelos-dev/charts` est ajouté à `sourceRepos` (sans préfixe `oci://` : ArgoCD 2.x). L'AppProject n'est
 pas géré par ArgoCD : le réappliquer à la main.
 
 ```bash

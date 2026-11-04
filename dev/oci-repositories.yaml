@@ -1,0 +1,37 @@
+# Registres Helm OCI publics déclarés auprès d'ArgoCD.
+#
+# ArgoCD 2.x ne lit un chart OCI que si son registre est un dépôt « helm »
+# avec enableOCI: "true", référencé SANS préfixe oci:// (repoURL + chart).
+# Pas de credentials : registres publics.
+#
+# Wave -1 : avant les Applications qui en dépendent (litellm, kelos).
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-oci-kelos
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+stringData:
+  name: kelos
+  type: helm
+  url: ghcr.io/kelos-dev/charts
+  enableOCI: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-oci-litellm
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+stringData:
+  name: litellm
+  type: helm
+  url: docker.litellm.ai/berriai
+  enableOCI: "true"

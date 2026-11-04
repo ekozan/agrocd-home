@@ -187,8 +187,8 @@ agrocd-home/
 ├── dev/
 │   ├── kasm.yaml             # App ArgoCD multi-source : chart Helm kasm-helm + ./dev/kasm
 │   ├── kasm/                 # Job keygen du Secret kasm-secrets
-│   ├── disabled/coder.yaml   # Coder désactivé (sous-dossier non synchronisé par l'app `dev`)
-│   ├── coder-db.yaml
+│   ├── disabled/             # Coder et sa base Bitnami (coder-db.yaml) désactivés : sous-dossier non synchronisé par l'app `dev`
+│   ├── oci-repositories.yaml # Registres Helm OCI déclarés auprès d'ArgoCD (enableOCI) : LiteLLM, Kelos
 │   ├── kelos.yaml            # App ArgoCD multi-source : chart OCI Kelos + ./dev/kelos
 │   ├── kelos/                # Token Console, NetworkPolicy (accès NetBird), agent Claude (kelos-agents) + README
 │   ├── litellm.yaml
@@ -224,8 +224,8 @@ agrocd-home/
 | Kasm Workspaces | `helm.kasm.com` | 1.1190.6 | kasm |
 | Coder (*désactivé*) | `helm.coder.com/v2` | 2.34.0 | coder |
 | PostgreSQL (Coder) | `charts.bitnami.com/bitnami` | 15.5.x | coder |
-| LiteLLM | OCI `docker.litellm.ai/berriai/litellm-helm` | 0.1.2 | litellm |
-| Kelos | OCI `ghcr.io/kelos-dev/charts` | 0.63.0 | kelos-system |
+| LiteLLM | OCI `docker.litellm.ai/berriai` (chart `litellm-helm`) | 0.1.2 | litellm |
+| Kelos | OCI `ghcr.io/kelos-dev/charts` (chart `kelos`) | 0.63.0 | kelos-system |
 **Manifests bruts (sans Helm)**
 
 | Application | Image | Version | Namespace |
@@ -309,7 +309,7 @@ config des applications ne sont pas modifiées.**
    - **LiteLLM** (`dev/litellm.yaml`) → base externe `litellm` (désactiver le
      PostgreSQL embarqué du chart).
 3. **Supprimer** les anciennes instances : `infra/04 zitadel db.yaml`,
-   `dev/coder-db.yaml`, et les sous-charts `postgresql` de Gitea/LiteLLM.
+   `dev/disabled/coder-db.yaml`, et les sous-charts `postgresql` de Gitea/LiteLLM.
    ⚠️ Le `prune` ArgoCD est actif : supprimer ces fichiers détruit les anciens
    PostgreSQL — ne le faire qu'**après** validation de la migration.
 

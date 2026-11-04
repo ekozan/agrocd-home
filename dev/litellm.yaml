@@ -25,8 +25,10 @@ spec:
       prune: true
       selfHeal: true
   source:
-    chart: litellm
-    repoURL: oci://docker.litellm.ai/berriai/litellm-helm
+    # Chart OCI docker.litellm.ai/berriai/litellm-helm : registre sans
+    # préfixe oci:// + dépôt enableOCI (dev/oci-repositories.yaml).
+    chart: litellm-helm
+    repoURL: docker.litellm.ai/berriai
     targetRevision: 0.1.2
     helm:
       releaseName: litellm
