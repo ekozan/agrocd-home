@@ -170,6 +170,7 @@ ne fonctionnent pas (constaté en 0.80) : une ressource domaine donne « invalid
 | `argocd.proxy.ffd.link` | ClusterIP `argocd/argocd-server`, `https` 443 (skip TLS verify) | `argocd.ffd.link` (`local-only`, CLI) |
 | `crowdsec.proxy.ffd.link` | ClusterIP `crowdsec/crowdsec-web-ui`, `http` 3000 | `crowdsec.ffd.link` (`local-only`) |
 | `kasm.proxy.ffd.link` | ClusterIP du Service proxy de Kasm (`kubectl -n kasm get svc`) | `kasm.ffd.link` (`local-only`) |
+| `kelos.proxy.ffd.link` | ClusterIP `kelos-system/kelos-console-server`, `http` 80 | — (pas de route Traefik, cf. `dev/kelos/`) |
 | `home.proxy.ffd.link` | Peer `homeassistant` | — |
 
 ```bash
@@ -177,6 +178,7 @@ ne fonctionnent pas (constaté en 0.80) : une ressource domaine donne « invalid
 kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.clusterIP}{"\n"}'
 kubectl -n crowdsec get svc crowdsec-web-ui -o jsonpath='{.spec.clusterIP}{"\n"}'
 kubectl -n kasm get svc
+kubectl -n kelos-system get svc kelos-console-server -o jsonpath='{.spec.clusterIP}{"\n"}'
 ```
 
 - ⚠️ Une ClusterIP ne change que si le Service est **supprimé puis recréé**

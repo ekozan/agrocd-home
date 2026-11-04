@@ -1,0 +1,76 @@
+# Kelos — orchestration d'agents de code IA (Claude Code, Codex, Gemini…)
+# sous forme de CRDs (Task, TaskSpawner, Session, Workspace, AgentConfig…).
+# Chart : https://github.com/kelos-dev/kelos/tree/main/internal/manifests/charts/kelos
+#
+# Multi-source :
+#   1. chart Helm OCI officiel (contrôleur + CRDs + Kelos Console) ;
+#   2. dev/kelos/ : ExternalSecret du token de la Console et NetworkPolicy.
+#
+# Accès à la Console : uniquement via le reverse proxy NetBird
+# (`kelos.proxy.ffd.link`, SSO Zitadel ou NetBird-Only), cf. dev/kelos/README.md.
+# Pas de route Traefik : le Service reste en ClusterIP.
+#
+# Prérequis : cert-manager (infra, wave 1) — Kelos sert un webhook de
+# conversion des CRDs dont le certificat est émis par un Issuer auto-signé.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kelos
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    # Namespace attendu par `kelos install` / la CLI ; le chart rend lui-même
+    # l'objet Namespace quand la release y est installée.
+    namespace: kelos-system
+  sources:
+    - chart: kelos
+      repoURL: oci://ghcr.io/kelos-dev/charts
+      targetRevision: 0.63.0
+      helm:
+        releaseName: kelos
+        valuesObject:
+          # Le chart rend les CRDs (sous-chart) ; `keep` les conserve si l'app
+          # est supprimée (les Tasks/TaskSpawners ont des finalizers).
+          crds:
+            install: true
+            keep: true
+          telemetry:
+            enabled: false
+          consoleServer:
+            enabled: true
+            # Mode token statique : un seul utilisateur partagé. Le token est
+            # synchronisé depuis OpenBao (dev/kelos/externalsecret.yaml).
+            secretName: kelos-console-auth
+            tokenKey: token
+            # TLS terminé par le reverse proxy NetBird → cookie `Secure`.
+            secureCookie: true
+            defaultNamespace: kelos-system
+            service:
+              type: ClusterIP
+              port: 80
+    - repoURL: https://github.com/ekozan/agrocd-home.git
+      targetRevision: main
+      path: dev/kelos
+  syncPolicy:
+    syncOptions:
+      # Le namespace doit exister avant l'ExternalSecret (wave -1) ; le chart
+      # rend aussi l'objet Namespace, ArgoCD le reprend ensuite.
+      - CreateNamespace=true
+      # CRDs volumineuses : évite la limite de taille de l'annotation
+      # last-applied-configuration de l'apply client.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 3m0s
+        factor: 2
