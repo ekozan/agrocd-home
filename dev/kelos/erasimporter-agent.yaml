@@ -1,0 +1,201 @@
+# Agent Claude Code sur ekozan/erasimporter (Fieldwire Import Manager, ERAS).
+#
+# - Workspace `erasimporter` : dépôt privé, cloné avec le PAT `github-token`
+#   (le dépôt doit être ajouté au périmètre du PAT, cf. README).
+# - AgentConfig `fieldwire` : skill « fieldwire » (API Fieldwire v3 telle
+#   qu'utilisée par l'outil : régions, auth, pagination, quotas, upload des
+#   plans) ; combinée à `claude-homelab` (règles communes).
+# - Session `claude-erasimporter` : conversation persistante, branche de
+#   travail `claude/kelos-session`.
+#
+# Spec de Session immuable : pour changer de Workspace ou d'AgentConfigs,
+# créer une nouvelle Session (autre nom). Le contenu de l'AgentConfig, lui,
+# peut évoluer (pris en compte au prochain démarrage du pod).
+---
+apiVersion: kelos.dev/v1alpha2
+kind: Workspace
+metadata:
+  name: erasimporter
+  namespace: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  repo: https://github.com/ekozan/erasimporter.git
+  ref: main
+  secretRef:
+    name: github-token
+---
+apiVersion: kelos.dev/v1alpha2
+kind: AgentConfig
+metadata:
+  name: fieldwire
+  namespace: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  plugins:
+    - name: fieldwire
+      skills:
+        - name: fieldwire
+          content: |
+            ---
+            name: fieldwire
+            description: >-
+              API Fieldwire v3 et code de l'outil Fieldwire Import Manager (ERAS,
+              dossier FIELDWIRE/) : plans PDF, révisions, dossiers, tâches, zones,
+              formulaires. À utiliser pour toute modification qui appelle l'API
+              Fieldwire, touche à l'import des plans, aux règles de nommage, à la
+              pagination, aux quotas ou à l'authentification.
+            ---
+
+            # Fieldwire Import Manager
+
+            Outil de bureau Python 3.10+ / Tkinter (`FIELDWIRE/app.py`) qui importe en
+            masse dans Fieldwire, via l'API v3 : plans PDF, tâches, formulaires et zones.
+            Build Windows avec PyInstaller (`pyinstaller fieldwire.spec`).
+
+            ## Carte du code
+
+            | Fichier | Rôle |
+            |---|---|
+            | `config.py` | Constantes : `API_REGIONS`, `SESSION_FILE`, `MAX_CONCURRENT_UPLOADS` (2) |
+            | `api.py` | Session HTTP, en-têtes, `api_get` (pagination), `api_post` (POST/PATCH + retry 429), `RateLimitTracker`, auth navigateur |
+            | `plans.py` | Parsing des noms, import des PDF, révisions, classement en dossiers |
+            | `tasks.py` | Import/export Excel des tâches, synchronisation par id |
+            | `forms.py` | Import des formulaires, génération depuis les modèles |
+            | `locations.py` | Zones hiérarchiques (jusqu'à 5 niveaux) |
+            | `settings.py` | Règles de nommage (regex) par projet |
+            | `app.py`, `fieldwire_ui.py`, `theme.py` | Interface Tkinter |
+
+            Réutilise toujours `api_get` / `api_post` / `api_headers` / `unwrap` de
+            `api.py` plutôt que d'appeler `requests` directement : quotas, retries
+            et pagination y sont centralisés. Exception : le PATCH de révision des
+            floorplans et l'upload S3 dans `plans.py`.
+
+            ## API Fieldwire v3
+
+            - **Bases par région** (`config.API_REGIONS`) :
+              `https://client-api.eu.fieldwire.com/api/v3` et
+              `https://client-api.us.fieldwire.com/api/v3`. La région est détectée
+              automatiquement : ne code jamais une région en dur.
+            - **En-têtes** (`api_headers`) : `Authorization: Bearer <token>`,
+              `Fieldwire-Version: <date du jour ISO>`, `Accept` et `Content-Type`
+              à `application/json`.
+            - **Auth** : le token (`accessToken`/`authToken` du localStorage de
+              app.fieldwire.com) est récupéré via Chrome/Selenium et sauvegardé dans
+              `fieldwire_session.json`. Ne jamais commiter ce fichier ni un token.
+              Un 401 veut dire que le token est expiré : il faut se reconnecter.
+            - **Pagination** (`api_get`) : requête avec `Fieldwire-Per-Page: 1000`.
+              Tant que la réponse a `X-Has-More: true`, rappeler avec
+              `?last_synced_at=<X-Last-Synced-At>`. Garde-fous : curseur déjà vu,
+              ids déjà vus, 100 pages maximum.
+            - **Quotas** : 3 000 requêtes par 5 minutes en fenêtre glissante, plus des
+              limites par endpoint. En cas de 429, attendre `retry-after` (secondes),
+              sinon `ratelimit-reset` / `X-RateLimit-Reset` (timestamp Unix), sinon un
+              backoff exponentiel plafonné à 60 s. Suivi via `rate_tracker`
+              (`X-RateLimit-Remaining`). Limiter le parallélisme des uploads au
+              sémaphore de `config.py`.
+            - **Réponses** : liste directe ou objet enveloppé. `unwrap()` gère les clés
+              `projects`, `tasks`, `floorplans`, `forms`, `users`, `data`, `items`,
+              `results`. Ignorer les objets ayant `deleted_at`.
+
+            ### Endpoints utilisés
+
+            | Usage | Endpoint |
+            |---|---|
+            | Compte, utilisateurs | `GET /account`, `GET /account/users` |
+            | Projets actifs | `GET /account/projects?filter=active` |
+            | Membres d'un projet | `GET /account/projects/{id}/users` |
+            | Tâches | `GET/POST /projects/{id}/tasks`, `PATCH /projects/{id}/tasks/{task_id}`, `/projects/{id}/teams/{team_id}/tasks`, `/projects/{id}/tasks/{task_id}/task_attributes`, `/projects/{id}/task_types` |
+            | Zones | `GET/POST /projects/{id}/locations`, `PATCH /projects/{id}/locations/{loc_id}` |
+            | Plans | `/projects/{id}/floorplans`, `/projects/{id}/sheets`, `/projects/{id}/sheet_uploads`, `/projects/{id}/folders` |
+            | Formulaires | `/projects/{id}/forms`, `/projects/{id}/form_templates`, `POST /projects/{id}/forms/{form_id}/generate` |
+            | Divers | `/projects/{id}/teams`, `/projects/{id}/tags`, `/projects/{id}/statuses`, `/projects/{id}/attachments`, `/projects/{id}/hyperlinks` |
+
+            ### Import d'un plan (`plans.py`)
+
+            1. `POST /aws_post_tokens` (à la racine, **pas** sous `/projects/`) :
+               renvoie `post_address` et `post_parameters`.
+            2. POST multipart vers S3 (`post_address`) : remplacer `${filename}` par le
+               nom du fichier dans `key` et dans les autres paramètres, en gardant
+               l'ordre des champs. S3 répond `204`, ce qui est un succès.
+               `file_url = post_address + "/" + key`.
+            3. `POST /projects/{id}/sheet_uploads` avec `name`, `file_url`,
+               `version_description` (la révision) et `user_id`. Le `floorplan_id`
+               arrive de manière asynchrone : poller le sheet_upload, ou les
+               floorplans par nom.
+            4. Nouvelle révision d'un plan existant :
+               `PATCH /projects/{id}/floorplans/{fp_id}` avec
+               `{"sheets": [{"name", "original_url", "version_description"}]}`, et
+               `name` si le titre change.
+            5. Un PDF multi-pages est découpé page par page (`pypdf`, `strict=False`).
+
+            Formulaires : après création, `POST .../forms/{form_id}/generate`, puis
+            poller jusqu'à `process_state == "processed"`.
+
+            ## Règles de nommage (`settings.py`)
+
+            Chaque règle a deux regex à groupes nommés `(?P<nom>...)` :
+
+            - `regex` : matche le fichier PDF (avec révision et `.pdf`) ;
+            - `regex_name` : matche le nom du plan dans Fieldwire (sans révision).
+
+            Les groupes alimentent les modèles de nom (`{num_projet}_{lot}_...`) et de
+            dossier (`LOT-{lot}`). L'ordre des règles compte : la plus spécifique en
+            premier. Règles par défaut :
+
+            - `LOTS-PREFIXED` : `[VAO]694945_2000_VR_PL_0002_B - Reseaux humides` → `LOT-2000`
+            - `ERAS` : `694945_RI_NC_3111_A - Bilan` → `ERAS-RI`
+
+            Toute modification d'une regex doit être testée sur ces deux exemples, et
+            sur les révisions (`A`, `B`, … et indices numériques, cf. `_rev_sort_key`).
+
+            ## Travailler dans ce dépôt
+
+            - Pas d'accès Fieldwire depuis le pod : pas de token, pas d'appel réel à
+              l'API. Valide la logique hors réseau (parsing, regex, pagination simulée
+              avec des réponses factices) et décris les tests manuels à faire dans la PR.
+            - Dépendances : `pip install -r FIELDWIRE/requirements.txt`. Tkinter est
+              requis pour `app.py` (`sudo -n apt-get install -y python3-tk`).
+              L'interface graphique ne peut pas être lancée dans le pod.
+            - Vérification minimale avant de pousser :
+              `python -m py_compile FIELDWIRE/*.py`.
+            - Textes de l'interface et des logs en français. Les fichiers existants
+              évitent les accents dans les identifiants : garde le style du fichier
+              que tu modifies.
+            - Modèles Excel/CSV (`template_*.xlsx`/`.csv`) : ce sont des formats
+              d'échange avec les utilisateurs. Ne change pas leurs colonnes sans
+              adapter l'import et l'export.
+---
+apiVersion: kelos.dev/v1alpha2
+kind: Session
+metadata:
+  name: claude-erasimporter
+  namespace: kelos-agents
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  initialBranch: claude/kelos-session
+  worker:
+    type: claude-code
+    credentials:
+      type: oauth
+      secretRef:
+        name: claude-oauth-token
+    workspaceRef:
+      name: erasimporter
+    agentConfigRefs:
+      - name: claude-homelab
+      - name: fieldwire
+  volumeClaimTemplate:
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: longhorn
+    resources:
+      requests:
+        storage: 10Gi
+  idlePolicy:
+    suspendAfterSeconds: 3600
