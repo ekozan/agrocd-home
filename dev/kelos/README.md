@@ -13,7 +13,7 @@ interactif)…
 | Namespace | `kelos-system` |
 | Console | Service `kelos-console-server` (ClusterIP, port 80 → 8080) |
 | Accès | `https://kelos.proxy.ffd.link` — reverse proxy NetBird uniquement |
-| Agents | namespace `kelos-agents` — Session Claude Code `claude` sur `agrocd-home` |
+| Agents | namespace `kelos-agents` — Sessions Claude Code `claude` (`agrocd-home`) et `claude-erasimporter` (`erasimporter`, skill Fieldwire) |
 
 | Fichier | Rôle |
 |---------|------|
@@ -22,6 +22,7 @@ interactif)…
 | `agents-namespace.yaml` | Namespace `kelos-agents` |
 | `agents-secrets.yaml` | Secrets `claude-oauth-token` (abonnement Claude) et `github-token` depuis OpenBao |
 | `claude-agent.yaml` | Workspace `agrocd-home`, AgentConfig `claude-homelab`, Session `claude` |
+| `erasimporter-agent.yaml` | Workspace `erasimporter`, AgentConfig `fieldwire` (skill API Fieldwire v3), Session `claude-erasimporter` |
 
 ## Mise en place (une fois, **avant** de merger)
 
@@ -113,6 +114,19 @@ commité) sont dans l'AgentConfig `claude-homelab`.
   l'AgentConfig elle-même est possible (prise en compte au prochain pod).
   Sinon, créer une Session sous un autre nom.
 - **Supprimer** une Session supprime son PVC et la conversation.
+
+### Agent erasimporter (Fieldwire)
+
+Session `claude-erasimporter` sur le dépôt privé `ekozan/erasimporter`
+(Fieldwire Import Manager), branche `claude/kelos-session`, avec les
+AgentConfigs `claude-homelab` et `fieldwire`. La skill `fieldwire` documente
+l'API Fieldwire v3 telle que l'outil l'utilise (régions EU/US, en-têtes,
+pagination `X-Has-More`/`last_synced_at`, quotas et 429, upload des plans
+`aws_post_tokens` → S3 → `sheet_uploads`, règles de nommage). L'agent n'a pas
+de token Fieldwire : il ne fait aucun appel réel à l'API.
+
+Prérequis : ajouter `ekozan/erasimporter` au périmètre du PAT GitHub
+(`kubernetes/kelos/github`), sinon le clone de la Session échoue.
 
 Doc Kelos : <https://github.com/kelos-dev/kelos/tree/main/docs>.
 
