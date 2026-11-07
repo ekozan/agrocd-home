@@ -25,6 +25,21 @@ spec:
   ref: main
   secretRef:
     name: github-token
+  # Préparation de l'environnement de l'agent à chaque démarrage du pod
+  # (idempotent, échec « mou ») :
+  #   1. kelos/setup.sh du dépôt : paquets apt (python3-tk, xvfb, openpyxl…),
+  #      jsdom/puppeteer-core, chrome-headless-shell ;
+  #   2. dépendances Python de l'outil (FIELDWIRE/requirements.txt : selenium,
+  #      pypdf, cairosvg, Pillow…), absentes de setup.sh.
+  # Les fichiers n'existent que si `ref` contient kelos/ (présent sur main).
+  setupCommand:
+    - bash
+    - -c
+    - |
+      bash /workspace/repo/kelos/setup.sh
+      python3 -m pip install --user --quiet --break-system-packages \
+        -r /workspace/repo/FIELDWIRE/requirements.txt \
+        || echo "[setup] pip install : échec (non bloquant)"
 ---
 apiVersion: kelos.dev/v1alpha2
 kind: AgentConfig
