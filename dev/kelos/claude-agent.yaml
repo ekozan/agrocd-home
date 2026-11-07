@@ -47,6 +47,65 @@ spec:
       commité : les dépôts peuvent être publics. Les secrets vivent dans OpenBao.
     - Avant de pousser, relis le diff et lance les vérifications rapides
       disponibles (lint, validation YAML, tests).
+    - Économise les tokens : applique les skills `token-saver:*` (lecture
+      ciblée, sorties courtes, contexte léger).
+  plugins:
+    - name: token-saver
+      skills:
+        - name: lecture-ciblee
+          content: |
+            ---
+            name: lecture-ciblee
+            description: À appliquer avant de lire un fichier ou de chercher dans le dépôt, pour lire le minimum de tokens (gros YAML, values Helm, README).
+            ---
+            # Lecture ciblée
+
+            - Localise d'abord avec `grep -n` / `rg -n` (ou `find`), puis lis
+              uniquement la plage utile (`Read` avec offset/limit, `sed -n 'A,Bp'`).
+            - Ne relis jamais un fichier déjà lu ou que tu viens d'éditer.
+            - Pour une version ou un champ précis, `grep -nE 'targetRevision|image:'`
+              suffit : n'ouvre pas le manifeste entier.
+            - Lance les recherches indépendantes en parallèle, en un seul appel.
+            - Évite `cat` sur un fichier > 200 lignes, et ignore `.git`, `node_modules`,
+              les fichiers générés et les CRDs.
+        - name: sorties-courtes
+          content: |
+            ---
+            name: sorties-courtes
+            description: À appliquer avant d'exécuter une commande shell ou kubectl/gh/helm, pour limiter la taille des sorties renvoyées dans le contexte.
+            ---
+            # Sorties courtes
+
+            - Filtre à la source : `--jq`, `-o jsonpath=`, `-o name`, `--json champ1,champ2`,
+              `--limit N`, plutôt que le JSON/YAML complet.
+            - Borne les sorties : `| head -n 40`, `| tail -n 30`, `grep -c` pour compter.
+            - `kubectl get ... -o yaml` est interdit sans filtre : prends `-o wide`
+              ou `jsonpath`. Pour les logs : `--tail=50 --since=10m`.
+            - Pour un test ou un lint : n'affiche que les échecs
+              (`2>&1 | grep -iE 'error|fail' | head`).
+            - Redirige les sorties volumineuses vers `/tmp/x.log` et n'en lis que
+              la partie utile.
+            - Ne fais pas de `gh issue view` ou `gh pr view` complet si seuls le
+              titre, l'état ou un champ sont utiles.
+        - name: contexte-leger
+          content: |
+            ---
+            name: contexte-leger
+            description: À appliquer pendant une session longue ou une tâche multi-étapes pour garder le contexte petit (réponses concises, délégation, sous-agents).
+            ---
+            # Contexte léger
+
+            - Réponds brièvement : résultat et décision, sans reformuler la demande
+              ni lister des options que tu ne retiens pas.
+            - Ne recopie pas de code ou de diff déjà visibles ; cite `fichier:ligne`.
+            - Délègue à un sous-agent les explorations larges (plusieurs fichiers)
+              et ne garde que sa conclusion.
+            - Fais des modifications ciblées (`Edit`), pas de réécriture complète
+              d'un fichier.
+            - Ne relance pas une vérification déjà faite et ne revérifie pas après
+              chaque édition ; une seule validation avant de pousser.
+            - Après une grosse tâche terminée, propose `/compact` ou une nouvelle
+              Session plutôt que de traîner un long historique.
 ---
 apiVersion: kelos.dev/v1alpha2
 kind: Session

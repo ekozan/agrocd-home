@@ -125,6 +125,15 @@ pagination `X-Has-More`/`last_synced_at`, quotas et 429, upload des plans
 `aws_post_tokens` → S3 → `sheet_uploads`, règles de nommage). L'agent n'a pas
 de token Fieldwire : il ne fait aucun appel réel à l'API.
 
+Le Workspace exécute un `setupCommand` à chaque démarrage du pod :
+`kelos/setup.sh` du dépôt erasimporter (apt, jsdom, chrome-headless-shell), puis
+`pip install -r FIELDWIRE/requirements.txt` (selenium, pypdf, cairosvg, Pillow…),
+sans bloquer le démarrage en cas d'échec.
+
+Les AgentConfigs partagés `claude-homelab` embarquent aussi le plugin
+`token-saver` (skills `lecture-ciblee`, `sorties-courtes`, `contexte-leger`)
+pour réduire la consommation de tokens des agents.
+
 Prérequis : ajouter `ekozan/erasimporter` au périmètre du PAT GitHub
 (`kubernetes/kelos/github`), sinon le clone de la Session échoue.
 
