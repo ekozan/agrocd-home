@@ -29,7 +29,8 @@ spec:
   # (idempotent, échec « mou ») :
   #   1. kelos/setup.sh du dépôt : paquets apt (python3-tk, xvfb, openpyxl…),
   #      jsdom/puppeteer-core, chrome-headless-shell ;
-  #   2. dépendances Python de l'outil (FIELDWIRE/requirements.txt : selenium,
+  #   2. python3-pip et libcairo2 (requis par cairosvg), absents de setup.sh ;
+  #   3. dépendances Python de l'outil (FIELDWIRE/requirements.txt : selenium,
   #      pypdf, cairosvg, Pillow…), absentes de setup.sh.
   # Les fichiers n'existent que si `ref` contient kelos/ (présent sur main).
   setupCommand:
@@ -37,6 +38,15 @@ spec:
     - -c
     - |
       bash /workspace/repo/kelos/setup.sh
+      # Prérequis système des libs Python : pip, et libcairo2 (cairosvg).
+      need=""
+      for p in python3-pip libcairo2; do dpkg -s "$p" >/dev/null 2>&1 || need="$need $p"; done
+      if [ -n "$need" ]; then
+        SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo -n"
+        { ls /var/lib/apt/lists/*Packages* >/dev/null 2>&1 || $SUDO apt-get update -qq; } >/dev/null 2>&1
+        DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recommends $need >/dev/null 2>&1 \
+          || echo "[setup] apt$need : échec (non bloquant)"
+      fi
       python3 -m pip install --user --quiet --break-system-packages \
         -r /workspace/repo/FIELDWIRE/requirements.txt \
         || echo "[setup] pip install : échec (non bloquant)"
