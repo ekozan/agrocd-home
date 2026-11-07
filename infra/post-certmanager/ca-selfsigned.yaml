@@ -15,6 +15,9 @@ spec:
   commonName: selfsigned-ca
   secretName: root-secret
   privateKey:
+    # CA : garde la même clé au renouvellement (défaut cert-manager ≥ 1.18 : Always),
+    # sinon la chaîne de confiance (bundle, clients) change à chaque cycle.
+    rotationPolicy: Never
     algorithm: ECDSA
     size: 256
   issuerRef:

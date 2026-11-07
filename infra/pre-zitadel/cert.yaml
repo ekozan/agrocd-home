@@ -12,6 +12,9 @@ spec:
   # 15 days
   renewBefore: 360h0m0s
   privateKey:
+    # CA : garde la même clé au renouvellement (défaut cert-manager ≥ 1.18 : Always),
+    # sinon la chaîne de confiance (bundle, clients) change à chaque cycle.
+    rotationPolicy: Never
     algorithm: RSA
     encoding: PKCS1
     size: 4096
