@@ -16,6 +16,7 @@ le disque.
 | `scripts/02b-backup-volumes.sh` | Contenu des volumes Longhorn : une archive tar.gz + sha256 par PVC | non (`STOP=1` : arrête les applis le temps de l'archive) |
 | `scripts/03-migrate-pvc.sh` | Migre **un** PVC Longhorn → local-path, même nom | oui |
 | `scripts/04-rollback-pvc.sh` | Remet un PVC migré sur son volume Longhorn | oui |
+| `scripts/05-remove-rancher.sh` | Retire le Rancher local du VPS (simulation par défaut, `APPLY=1`) | oui |
 
 ## 0. Récupérer les scripts sur le VPS
 
@@ -142,3 +143,32 @@ Sur local-path, la sauvegarde des données n'est plus intégrée : à mettre en
 place avec Velero + node-agent (Kopia) vers S3/TrueNAS, ou au minimum
 `k3s etcd-snapshot` / `02-backup.sh` + archive de
 `/var/lib/rancher/k3s/storage` en cron, copiées hors du VPS.
+
+## Rancher : VPS importé dans le Rancher maison
+
+Le VPS n'a plus de Rancher propre : il est importé (cluster `vps-ovh`) dans
+`https://rancher2.server` (Rancher maison, v2.10.1). Fait le 2026-11-08 avec
+`05-remove-rancher.sh`, qui exclut les CRD de k3s (`helm.cattle.io`,
+`k3s.cattle.io`) et conserve cert-manager, Longhorn, Mailu, Traefik.
+
+L'agent (`cattle-system/cattle-cluster-agent`) joint `rancher2.server`, nom
+interne, par NetBird :
+
+| Élément | Où |
+|---|---|
+| Client NetBird sur l'hôte du VPS (service systemd), groupe `vps` | `netbird status` |
+| Ressource `10.100.0.1/32` (IP de `rancher2.server`) routée par `netbird-k8s-router`, policy `vps → rancher` TCP 443 | dashboard NetBird |
+| Résolution pour les pods : ConfigMap `kube-system/coredns-custom` (clé `rancher.server`) | `kubectl -n kube-system get cm coredns-custom -o yaml` |
+| Résolution pour l'hôte : `/etc/hosts` | `10.100.0.1 rancher2.server` |
+
+Si `10.100.0.1` change : mettre à jour ces trois endroits, puis
+`kubectl -n kube-system rollout restart deploy coredns`.
+
+NetBird ou le Rancher maison coupé : le cluster passe en *Unavailable* dans
+Rancher, mais le VPS (Mailu…) continue de tourner normalement ; `kubectl` en
+local sur le VPS fonctionne toujours.
+
+Dépôts de charts à déclarer sur `vps-ovh` dans le Rancher maison :
+`mailu-charts` (https://mailu.github.io/helm-charts), `cert-manager`
+(https://charts.jetstack.io), `cert-manager-webhook-ovh-charts`
+(https://aureq.github.io/cert-manager-webhook-ovh/).
