@@ -1,0 +1,7 @@
+[Unit]
+Description=Watchdog du tunnel NetBird
+After=network-online.target netbird.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/netbird-watchdog.sh

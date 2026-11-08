@@ -193,6 +193,11 @@ kubectl -n kelos-system get svc kelos-console-server -o jsonpath='{.spec.cluster
 
 ## Notes
 
+- **Routeur (`netbird-k8s-router`) : sondes startup/liveness** sur `netbird status`
+  (Management et Signal `Connected`). Tunnel mort plus de 2 min → le kubelet
+  redémarre le conteneur (même PVC, même pair). Voir les redémarrages :
+  `kubectl -n netbird get pod -l app=netbird-router` (colonne RESTARTS).
+
 - **Pas de CrowdSec Traefik sur `*.proxy.ffd.link`** : en passthrough, Traefik ne
   voit pas le HTTP (ni bouncer, ni AppSec, ni access logs → pas de détection par
   l'agent). Seule la réputation IP du proxy s'applique.

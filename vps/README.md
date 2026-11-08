@@ -172,3 +172,20 @@ Dépôts de charts à déclarer sur `vps-ovh` dans le Rancher maison :
 `mailu-charts` (https://mailu.github.io/helm-charts), `cert-manager`
 (https://charts.jetstack.io), `cert-manager-webhook-ovh-charts`
 (https://aureq.github.io/cert-manager-webhook-ovh/).
+
+## Watchdog du tunnel NetBird (VPS)
+
+`netbird-watchdog/` : un timer systemd teste chaque minute
+`https://rancher2.server/ping` **à travers le tunnel** ; après 3 échecs
+consécutifs, `systemctl restart netbird` (au plus une fois par 10 min, pour ne
+pas boucler si la panne est côté maison). L'installation ajoute aussi
+`Restart=always` et une protection OOM au service `netbird`.
+
+```bash
+sudo bash /root/agrocd-home/vps/netbird-watchdog/install.sh
+journalctl -t netbird-watchdog -f
+```
+
+Réglages (variables d'environnement du service, via `systemctl edit
+netbird-watchdog.service`) : `NB_WATCHDOG_URL`, `NB_WATCHDOG_FAILS`,
+`NB_WATCHDOG_COOLDOWN`.

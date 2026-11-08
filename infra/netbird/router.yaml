@@ -99,6 +99,28 @@ spec:
           securityContext:
             capabilities:
               add: ["NET_ADMIN", "SYS_RESOURCE", "SYS_ADMIN"]
+          # Tunnel mort (Management ou Signal déconnecté) : le kubelet
+          # redémarre le conteneur (même pod, même PVC, même identité de pair).
+          # Tolérance de 2 min pour ne pas réagir à un simple redémarrage du
+          # management ou du signal (mise à jour, sync ArgoCD).
+          startupProbe:
+            exec:
+              command: &nbcheck
+                - /bin/sh
+                - -c
+                - >-
+                  s=$(netbird status) &&
+                  echo "$s" | grep -q '^Management: Connected' &&
+                  echo "$s" | grep -q '^Signal: Connected'
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: *nbcheck
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 4
           resources:
             requests:
               cpu: 25m
