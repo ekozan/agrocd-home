@@ -14,6 +14,8 @@ set -euo pipefail
 
 BK=${1:-/root/vps-backup-$(date +%Y%m%d-%H%M%S)}
 K=${KUBECTL:-kubectl}
+# k3s : kubectl lit /etc/rancher/k3s/k3s.yaml tout seul, pas helm.
+export KUBECONFIG=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
 K3S=/var/lib/rancher/k3s
 umask 077
 mkdir -p "$BK"/{datastore,manifests/namespaced,manifests/cluster,helm}
@@ -65,8 +67,8 @@ done
 
 echo "==> 4/4 Helm (releases + values)"
 if command -v helm >/dev/null; then
-  helm list -A >"$BK/helm/releases.txt"
-  helm list -A -o json | jq -r '.[] | "\(.namespace) \(.name)"' | while read -r ns rel; do
+  helm list -A >"$BK/helm/releases.txt" || echo "   helm list en échec (KUBECONFIG ?)"
+  { helm list -A -o json 2>/dev/null || echo "[]"; } | jq -r '.[] | "\(.namespace) \(.name)"' | while read -r ns rel; do
     helm get values -a -n "$ns" "$rel" -o yaml >"$BK/helm/${ns}_${rel}.values.yaml" 2>/dev/null || true
   done
 else

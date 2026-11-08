@@ -11,6 +11,8 @@ set -uo pipefail
 
 OUT=${1:-/root/vps-inventory-$(date +%Y%m%d-%H%M%S)}
 K=${KUBECTL:-kubectl}
+# k3s : kubectl lit /etc/rancher/k3s/k3s.yaml tout seul, pas helm.
+export KUBECONFIG=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
 mkdir -p "$OUT"
 chmod 700 "$OUT"
 
@@ -28,7 +30,7 @@ run os          cat /etc/os-release
 run uname       uname -a
 run cpu-mem     sh -c 'nproc; echo; free -h; echo; uptime'
 run disks       sh -c 'df -hT -x tmpfs -x devtmpfs -x overlay; echo; lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT'
-run du-k3s      sh -c 'du -sh /var/lib/rancher/k3s/storage /var/lib/longhorn /var/lib/rancher/k3s/server/db /var/lib/rancher/k3s/agent/containerd 2>/dev/null'
+run du-k3s      sh -c 'du -sh /var/lib/rancher/k3s/storage /var/lib/longhorn /var/lib/rancher/k3s/server/db/* /var/lib/rancher/k3s/agent/containerd 2>/dev/null'
 run tools       sh -c 'for t in jq sqlite3 helm rsync iscsiadm; do printf "%-10s %s\n" "$t" "$(command -v $t || echo ABSENT)"; done'
 
 echo "==> k3s"
@@ -73,12 +75,12 @@ run longhorn-pods     $K -n longhorn-system get pods -o wide
   echo "######## RÉSUMÉ VPS ($(hostname), $(date -Is)) ########"
   echo
   cat "$OUT/k3s-version.txt" | sed -n 2p
-  grep DATASTORE "$OUT/k3s-datastore.txt"
-  sed -n '2,3p' "$OUT/cpu-mem.txt"
+  grep "^DATASTORE=" "$OUT/k3s-datastore.txt"
+  echo "CPU : $(nproc)"
   free -h | sed -n 2p
   echo
   echo "--- Disques"
-  df -h / /var/lib/rancher /var/lib/longhorn 2>/dev/null | sort -u
+  df -h / /var/lib/rancher /var/lib/longhorn 2>/dev/null | awk 'NR==1 || !seen[$0]++'
   echo
   echo "--- Occupation"
   sed 1d "$OUT/du-k3s.txt"

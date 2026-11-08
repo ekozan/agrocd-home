@@ -2,6 +2,8 @@
 # shellcheck shell=bash
 
 K=${KUBECTL:-kubectl}
+# k3s : kubectl lit /etc/rancher/k3s/k3s.yaml tout seul, pas helm.
+export KUBECONFIG=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
 WORKDIR=${WORKDIR:-/root/vps-migration}
 
 log()  { printf '\n==> %s\n' "$*"; }
