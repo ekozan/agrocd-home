@@ -13,6 +13,7 @@ le disque.
 |---|---|---|
 | `scripts/01-collect-info.sh` | Inventaire (système, k3s, PVC, Longhorn, Helm, Rancher) | non |
 | `scripts/02-backup.sh` | Base k3s, token + CA, manifests (Secrets compris), values Helm | non |
+| `scripts/02b-backup-volumes.sh` | Contenu des volumes Longhorn : une archive tar.gz + sha256 par PVC | non (`STOP=1` : arrête les applis le temps de l'archive) |
 | `scripts/03-migrate-pvc.sh` | Migre **un** PVC Longhorn → local-path, même nom | oui |
 | `scripts/04-rollback-pvc.sh` | Remet un PVC migré sur son volume Longhorn | oui |
 
@@ -49,8 +50,10 @@ bash 02-backup.sh
 Puis **copier la sauvegarde hors du VPS** (commande `rsync` affichée à la fin),
 par exemple vers le TrueNAS.
 
-Les **données des volumes** sont archivées par `03-migrate-pvc.sh`, application
-arrêtée (copie cohérente) : `/root/vps-migration/<ns>_<pvc>/data.tar.gz`.
+Les **données des volumes** : `02b-backup-volumes.sh [namespace]` (à chaud par
+défaut, `STOP=1` pour arrêter les applis pendant l'archive), dans
+`/root/vps-backup-volumes-<date>/`. `03-migrate-pvc.sh` refait en plus une
+archive applis arrêtées juste avant chaque bascule.
 
 ## 3. Plus de nouveaux volumes Longhorn
 
