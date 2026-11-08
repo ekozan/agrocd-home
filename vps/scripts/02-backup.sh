@@ -96,4 +96,6 @@ du -sh "$BK"
 echo
 echo "Sauvegarde : $BK"
 echo "À copier HORS du VPS, depuis ta machine :"
-echo "  rsync -a root@$(hostname -f 2>/dev/null || hostname):$BK ./"
+# Connexion root par SSH souvent refusée : passer par l'utilisateur sudoer
+# (celui qui a fait « sudo -i », ubuntu sur les images cloud).
+echo "  ssh ${SUDO_USER:-ubuntu}@$(hostname -I 2>/dev/null | awk '{print $1}') 'sudo tar -czf - -C $(dirname "$BK") $(basename "$BK")' > $(basename "$BK").tar.gz"
