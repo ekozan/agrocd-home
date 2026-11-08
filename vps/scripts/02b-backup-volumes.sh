@@ -84,7 +84,7 @@ spec:
       args:
         - |
           set -uo pipefail
-          tar --numeric-owner --xattrs --acls -czf /out/$name.tar.gz -C /data . ; rc=\$?
+          tar --numeric-owner --xattrs --acls --warning=no-file-ignored -czf /out/$name.tar.gz -C /data . ; rc=\$?
           # 1 = fichier modifié pendant la lecture (normal à chaud) ; >1 = erreur
           [ \$rc -le 1 ] || { echo "tar en erreur (\$rc)"; exit \$rc; }
           [ \$rc -eq 1 ] && echo "AVERTISSEMENT : fichiers modifiés pendant l'archive (à chaud)"

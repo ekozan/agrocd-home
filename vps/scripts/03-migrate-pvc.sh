@@ -136,7 +136,7 @@ spec:
         - |
           set -euo pipefail
           echo "[1/3] archive -> data.tar.gz"
-          tar --numeric-owner --xattrs --acls -czf /backup/data.tar.gz -C /src .
+          tar --numeric-owner --xattrs --acls --warning=no-file-ignored -czf /backup/data.tar.gz -C /src .
           echo "[2/3] copie"
           cp -a /src/. /dst/
           echo "[3/3] vérification"
