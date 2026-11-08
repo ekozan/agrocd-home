@@ -50,21 +50,24 @@ cp -a /etc/systemd/system/k3s.service* "$BK/" 2>/dev/null || true
 
 echo "==> 3/4 Manifests"
 # Ressources namespacées listables (hors événements, métriques, objets
-# éphémères), un fichier par type et par namespace.
+# éphémères), un fichier par type.
 mapfile -t NS_RES < <($K api-resources --verbs=list,get --namespaced -o name \
   | grep -vE '^(events(\.events\.k8s\.io)?|pods\.metrics\.k8s\.io|endpointslices\.discovery\.k8s\.io|endpoints|leases\.coordination\.k8s\.io|localsubjectaccessreviews.*|.*reviews\..*)$')
-for ns in $($K get ns -o jsonpath='{.items[*].metadata.name}'); do
-  mkdir -p "$BK/manifests/namespaced/$ns"
-  for r in "${NS_RES[@]}"; do
-    out=$($K -n "$ns" get "$r" -o yaml 2>/dev/null) || continue
-    grep -q '^items: \[\]' <<<"$out" && continue
-    printf '%s\n' "$out" >"$BK/manifests/namespaced/$ns/$r.yaml"
-  done
+# Un appel par type, tous namespaces confondus (-A) : un appel par
+# namespace × type se compte en milliers avec les CRD de Rancher.
+n=${#NS_RES[@]} i=0
+for r in "${NS_RES[@]}"; do
+  i=$((i + 1))
+  printf '   [%d/%d] %-60s\r' "$i" "$n" "$r"
+  out=$($K get "$r" -A -o yaml --request-timeout=60s 2>/dev/null) || continue
+  grep -q '^items: \[\]' <<<"$out" && continue
+  printf '%s\n' "$out" >"$BK/manifests/namespaced/$r.yaml"
 done
+echo
 for r in namespaces persistentvolumes storageclasses customresourcedefinitions \
   clusterroles clusterrolebindings ingressclasses priorityclasses \
   mutatingwebhookconfigurations validatingwebhookconfigurations nodes; do
-  $K get "$r" -o yaml >"$BK/manifests/cluster/$r.yaml" 2>/dev/null || true
+  $K get "$r" -o yaml --request-timeout=60s >"$BK/manifests/cluster/$r.yaml" 2>/dev/null || true
 done
 
 echo "==> 4/4 Helm (releases + values)"
@@ -81,7 +84,7 @@ cat >"$BK/RESTORE.md" <<'EOF'
 # Restauration (résumé)
 - Volumes : /root/vps-migration/<ns>_<pvc>/data.tar.gz (créés par 03-migrate-pvc.sh)
   → monter un PVC vide dans un pod et `tar -xzpf data.tar.gz -C <montage>`.
-- Ressources : `kubectl apply -f manifests/namespaced/<ns>/<type>.yaml`
+- Ressources : `kubectl apply -f manifests/namespaced/<type>.yaml` (tous namespaces)
   (retirer status/uid/resourceVersion si besoin).
 - Cluster complet :
   - etcd   : k3s server --cluster-reset --cluster-reset-restore-path=<snapshot> (token identique)
