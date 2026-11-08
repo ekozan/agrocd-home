@@ -35,7 +35,7 @@ run tools       sh -c 'for t in jq sqlite3 helm rsync iscsiadm; do printf "%-10s
 
 echo "==> k3s"
 run k3s-version k3s --version
-run k3s-datastore sh -c 'ls -la /var/lib/rancher/k3s/server/db/ 2>&1; echo; [ -d /var/lib/rancher/k3s/server/db/etcd ] && echo "DATASTORE=etcd" || echo "DATASTORE=sqlite"'
+run k3s-datastore sh -c 'ls -la /var/lib/rancher/k3s/server/db/ 2>&1; echo; [ -d /var/lib/rancher/k3s/server/db/etcd/member ] && echo "DATASTORE=etcd" || echo "DATASTORE=sqlite"'
 { echo "\$ systemctl cat k3s"; systemctl cat k3s 2>&1; } | redact >"$OUT/k3s-service.txt"
 { echo "\$ cat /etc/rancher/k3s/config.yaml"; cat /etc/rancher/k3s/config.yaml 2>&1; } | redact >"$OUT/k3s-config.txt"
 run etcd-snapshots sh -c 'k3s etcd-snapshot ls 2>&1 || true'

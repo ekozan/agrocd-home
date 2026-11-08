@@ -23,7 +23,9 @@ mkdir -p "$BK"/{datastore,manifests/namespaced,manifests/cluster,helm}
 [ "$(id -u)" = 0 ] || { echo "À lancer en root." >&2; exit 1; }
 
 echo "==> 1/4 Base de données k3s"
-if [ -d "$K3S/server/db/etcd" ]; then
+# etcd seulement si des données de membre existent : un dossier db/etcd
+# presque vide (reste d'un essai de --cluster-init) n'est pas un datastore etcd.
+if [ -d "$K3S/server/db/etcd/member" ]; then
   k3s etcd-snapshot save --name pre-migration --dir "$BK/datastore"
 elif [ -f "$K3S/server/db/state.db" ]; then
   if command -v sqlite3 >/dev/null; then
