@@ -12,7 +12,7 @@ spec:
   source:
     chart: kubernetes-replicator
     repoURL: https://helm.mittwald.de
-    targetRevision: 2.10.*
+    targetRevision: 2.12.*
     helm:
       releaseName: kubernetes-replicator
   destination:
