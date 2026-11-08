@@ -86,7 +86,7 @@ for crd in ${CRDS[@]+"${CRDS[@]}"}; do
   | while read -r ns name; do
       if [ -z "$name" ]; then name=$ns ns=""; fi
       $K patch "$crd" "$name" ${ns:+-n "$ns"} --type merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
-    done
+    done || true   # CRD déjà supprimée (ex. par fleet-crd) : kubectl get échoue, pipefail
   run $K delete crd "$crd" --ignore-not-found --wait=false
 done
 
@@ -120,7 +120,7 @@ for kind in ns node; do
     patch=$($K get "$obj" -o json | jq -c '{metadata: {
         finalizers: ((.metadata.finalizers // []) | map(select(test("cattle") | not))),
         annotations: {"field.cattle.io/projectId": null},
-        labels: {"field.cattle.io/projectId": null}}}')
+        labels: {"field.cattle.io/projectId": null}}}') || continue
     $K patch "$obj" --type merge -p "$patch" >/dev/null || warn "échec sur $obj"
   done
 done
