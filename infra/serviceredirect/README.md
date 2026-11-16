@@ -4,7 +4,7 @@ Namespace `serviceredirect`, **géré par Rancher** (pas par ArgoCD) :
 
 - Service `nasv2` (headless) + Endpoints → NAS `10.10.0.245`
 - Ingress `homeserveringress` (classe `traefik`, TLS `ffd-link-tls`) : un hôte
-  `*.ffd.link` par service. `home.ffd.link` pointe vers `homev2` (Home Assistant).
+  `*.ffd.link` par service. `home.ffd.link` pointe vers `homev2` (Home Assistant, Endpoints `10.10.0.244:8123`).
 
 Objectif : plus d'exposition publique. Accès **local** (LAN) ou **NetBird**.
 
@@ -144,8 +144,8 @@ résolvent vers Traefik (`10.100.0.1`) :
 
 ## 3. Accès navigateur : reverse proxy NetBird
 
-Dashboard NetBird → **Networks** : ressource `10.10.0.245/32` (réseau routé par
-`netbird-k8s-router`). Puis **Reverse Proxy → Services → Add Service**, un par
+Dashboard NetBird → **Networks** : ressources `10.10.0.245/32` (NAS) et
+`10.10.0.244/32` (Home Assistant), réseau routé par `netbird-k8s-router`. Puis **Reverse Proxy → Services → Add Service**, un par
 ligne « proxy (SSO) » du tableau :
 
 | Domaine | Cible | Port |
@@ -156,7 +156,13 @@ ligne « proxy (SSO) » du tableau :
 | `nas.proxy.ffd.link` | `10.10.0.245` | 80 |
 | `openbao.proxy.ffd.link` | `10.10.0.245` | 14000 |
 | `homebox.proxy.ffd.link` / `komga.proxy.ffd.link` | `10.10.0.245` | 30149 / 30048 |
+| `home.proxy.ffd.link` | `10.10.0.244` | 8123 |
 | `jellyfin.proxy.ffd.link` (optionnel) | `10.10.0.245` | 8096 |
+
+Home Assistant : derrière un reverse proxy, `configuration.yaml` doit déclarer
+`http: use_x_forwarded_for: true` et `trusted_proxies` (IP du proxy/routeur
+NetBird), sinon HA répond 400. L'application mobile Home Assistant passe
+par le client NetBird plutôt que par le SSO du proxy.
 
 Protocole `http`, authentification **SSO** (Zitadel). Pour OpenBao (qui est en
 HTTPS), vérifier le schéma attendu par le backend.
