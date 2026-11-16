@@ -1,3 +1,7 @@
+# DÉSACTIVÉ TEMPORAIREMENT (Application Degraded). Pour réactiver : remettre ce fichier
+# dans infra/ (git mv infra/disabled/09-crowdsec-ui.yaml infra/09-crowdsec-ui.yaml).
+# Le finalizer supprime les ressources de infra/crowdsec-ui/ (dont le PVC de 1 Gi,
+# non critique) ; le Secret crowdsec-web-ui-credentials est conservé.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
