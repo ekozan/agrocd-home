@@ -1,0 +1,223 @@
+# Ingress des services du NAS. Mêmes noms que les objets Rancher existants :
+# ArgoCD les adopte (pas de doublon d'hôtes). Accès : LAN + pairs NetBird
+# (middleware local-only) ; le partage public Ente et openbao ont leur Ingress.
+# Wave 0 pour openbao/ente-share, wave 1 pour l'Ingress principal : les hôtes
+# retirés de ce dernier sont déjà servis par leur Ingress dédié.
+# Delete=false : supprimer l'Application ne supprime pas ces Ingress.
+# Cf. infra/serviceredirect/README.md.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homeserveringress
+  namespace: serviceredirect
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: Delete=false
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: jellyfin.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 8096
+    - host: jellyseerr.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 30042
+    - host: ente-api.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 8090
+    - host: ente.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 3000
+    - host: s3-console.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 9002
+    - host: nas.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 80
+    - host: vault.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 20080
+    - host: homebox.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 30149
+    - host: home.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homev2
+                port:
+                  number: 8123
+    - host: komga.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 30048
+  tls:
+    - hosts:
+        - '*.ffd.link'
+      secretName: ffd-link-tls
+---
+# OpenBao : local-only + CIDR des pods (External Secrets l'appelle depuis le cluster).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openbao
+  namespace: serviceredirect
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: Delete=false
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: openbao.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 14000
+  tls:
+    - hosts:
+        - '*.ffd.link'
+      secretName: ffd-link-tls
+---
+# Partage public Ente (CrowdSec seulement) : visionneuse d'albums, routes
+# publiques de l'API (/public-collection, /file-link, /public-memory, /ping) et
+# S3 pour les URL présignées. Les chemins plus spécifiques priment sur la règle
+# `ente-api` (local-only) de homeserveringress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ente-share
+  namespace: serviceredirect
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: Delete=false
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ente-albums.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 3002
+    - host: ente-api.ffd.link
+      http:
+        paths:
+          - path: /public-collection
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 8090
+          - path: /file-link
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 8090
+          - path: /public-memory
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 8090
+          - path: /ping
+            pathType: Exact
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 8090
+    - host: s3.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nasv2
+                port:
+                  number: 9000
+  tls:
+    - hosts:
+        - '*.ffd.link'
+      secretName: ffd-link-tls

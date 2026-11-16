@@ -1,0 +1,31 @@
+# Reprise par ArgoCD des services du NAS (namespace `serviceredirect`), jusque-là
+# gérés à la main via Rancher. Les manifests gardent les noms existants
+# (nasv2, homeserveringress) : ArgoCD adopte les objets en place, sans doublon
+# d'hôtes *.ffd.link. Cf. infra/serviceredirect/README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceredirect
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: HEAD
+    path: ./infra/serviceredirect
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serviceredirect
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true

@@ -526,6 +526,7 @@ Définis dans `init/03-traefik-middlewares.yaml` (namespace `traefik`, comme le 
 | `crowdsec` | Bouncer + AppSec WAF CrowdSec (corps entier inspecté) | `traefik-crowdsec@kubernetescrd` |
 | `crowdsec-largebody` | Idem `crowdsec` mais inspection AppSec du corps plafonnée à 10 Mo (services à gros uploads : OxiCloud) | `traefik-crowdsec-largebody@kubernetescrd` |
 | `local-only` | Accès restreint aux réseaux locaux `10.10.0.0/16`, `10.5.0.0/16` et aux pairs NetBird `100.64.0.0/10` | `traefik-local-only@kubernetescrd` |
+| `local-only-cluster` | Comme `local-only` + CIDR des pods `10.42.0.0/16` (hôtes appelés depuis le cluster, ex. openbao) | `traefik-local-only-cluster@kubernetescrd` |
 | `oidc-auth` | Login OIDC via Zitadel (plugin `traefik-oidc-auth`) | `traefik-oidc-auth@kubernetescrd` |
 
 **Appliquer sur une route** (les middlewares se chaînent, séparés par des virgules) :
