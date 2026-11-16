@@ -27,20 +27,20 @@ spec:
   source:
     chart: zitadel
     repoURL: https://charts.zitadel.com
-    targetRevision: 9.5.*
+    targetRevision: 9.34.*
     helm:
       releaseName: zitadel
       valuesObject:  
         replicaCount: 1
         image:
           # Overrides the image tag whose default is the chart appVersion.
-          tag: "v4.6.4"
+          tag: "v4.19.5"
         login:
           ingress:
             enabled: true
           image:
             # Overrides the image tag whose default is the chart appVersion.
-            tag: "v4.6.4"
+            tag: "v4.19.5"
         zitadel:
           masterkeySecretName: zitadel-masterkey
           configSecretName: zitadel-secrets
