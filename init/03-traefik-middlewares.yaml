@@ -121,6 +121,25 @@ spec:
       - 10.5.0.0/16
       - 100.64.0.0/10
 ---
+# Variante de local-only pour les hôtes appelés depuis le cluster (ex.
+# openbao.ffd.link, utilisé par External Secrets) : ajoute le CIDR des pods
+# (défaut k3s/RKE2, cf. NB_PROXY_TRUSTED_PROXIES dans infra/netbird/proxy.yaml ;
+# à vérifier avec `kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'`).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: local-only-cluster
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  ipAllowList:
+    sourceRange:
+      - 10.10.0.0/16
+      - 10.5.0.0/16
+      - 100.64.0.0/10
+      - 10.42.0.0/16
+---
 # Credentials OIDC du client Traefik, sourcés depuis OpenBao (convention du repo).
 # Flux PKCE → client public, AUCUN client_secret n'est nécessaire.
 # À renseigner dans OpenBao sous kv/kubernetes/traefik/zitadel :
