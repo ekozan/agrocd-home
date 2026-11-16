@@ -1,0 +1,28 @@
+# Keypair RSA du login client Zitadel (chart >= 10).
+# Le login signe ses JWT avec tls.key ; Zitadel vérifie avec tls.crt (SystemAPIUser).
+# Épinglé ici car Argo CD ne dispose pas de `lookup` : le chart régénérerait un
+# keypair à chaque rendu. Référencé par login.loginServiceKeySecretName.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zitadel-login-service-key
+  namespace: zitadel
+spec:
+  secretName: zitadel-login-service-key
+  commonName: login-service
+  dnsNames:
+    - login-service
+  # 10 ans, comme le défaut du chart (3650 j)
+  duration: 87600h0m0s
+  renewBefore: 720h0m0s
+  privateKey:
+    algorithm: RSA        # obligatoire : le login signe en RS256
+    encoding: PKCS1
+    size: 2048
+    rotationPolicy: Never # même clé au renouvellement
+  usages:
+    - digital signature
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
