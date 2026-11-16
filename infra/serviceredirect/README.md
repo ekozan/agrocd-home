@@ -12,9 +12,10 @@ Objectif : plus d'exposition publique. Accès **local** (LAN) ou **NetBird**.
 |------|----------|-------|--------------------|
 | `jellyfin.ffd.link` | 8096 | Jellyfin | app → client NetBird ; navigateur → proxy |
 | `jellyseerr.ffd.link` | 30042 | Jellyseerr | proxy (SSO) |
-| `ente.ffd.link` / `ente-albums.ffd.link` | 3000 / 3002 | Ente web / albums | proxy (SSO) |
-| `ente-api.ffd.link` | 8090 | API Ente (apps mobiles) | client NetBird uniquement |
-| `s3.ffd.link` | 9000 | API S3 | client NetBird uniquement |
+| `ente.ffd.link` | 3000 | Ente web | proxy (SSO) |
+| `ente-albums.ffd.link` | 3002 | Albums partagés (**public**) | public (liens de partage) |
+| `ente-api.ffd.link` | 8090 | API Ente (apps mobiles) | client NetBird ; **chemins de partage publics** (cf. § Partage Ente) |
+| `s3.ffd.link` | 9000 | S3 (URL présignées Ente) | **public** si l'endpoint S3 de museum est `s3.ffd.link` (cf. § Partage Ente) |
 | `s3-console.ffd.link` | 9002 | Console S3 | proxy (SSO) |
 | `nas.ffd.link` | 80 | UI du NAS | proxy (SSO) |
 | `vault.ffd.link` | 20080 | Vaultwarden (apps/extensions) | client NetBird uniquement |
@@ -33,12 +34,12 @@ Middlewares dans `init/03-traefik-middlewares.yaml` :
 `local-only-cluster` (+ pods `10.42/16`, pour openbao : External Secrets l'appelle
 depuis le cluster via `https://openbao.ffd.link`).
 
-Un middleware s'applique à tout l'Ingress : openbao est donc sorti dans son
-propre Ingress. **À faire avec `kubectl`** (pas dans l'UI Rancher, qui pourrait
+Un middleware s'applique à tout l'Ingress : openbao et le partage Ente (albums,
+S3) sont donc sortis dans leurs propres Ingress. **À faire avec `kubectl`** (pas dans l'UI Rancher, qui pourrait
 écraser les modifications), **dans cet ordre** et après le merge/sync de la PR :
 
 ```bash
-# 1. Ingress dédié openbao (local-only-cluster)
+# 1a. Ingress dédié openbao (local-only-cluster)
 kubectl apply -f - <<'YAML'
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -62,18 +63,72 @@ spec:
       secretName: ffd-link-tls
 YAML
 
-# 2. Retirer la règle openbao de l'Ingress principal
-idx=$(kubectl -n serviceredirect get ing homeserveringress -o json \
-  | jq '.spec.rules | map(.host) | index("openbao.ffd.link")')
-kubectl -n serviceredirect patch ing homeserveringress --type json \
-  -p "[{\"op\":\"remove\",\"path\":\"/spec/rules/$idx\"}]"
+# 1b. Partage Ente public (CrowdSec seulement, sans local-only), cf. § Partage Ente
+kubectl apply -f - <<'YAML'
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ente-share
+  namespace: serviceredirect
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ente-albums.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: nasv2, port: {number: 3002}}
+    - host: ente-api.ffd.link
+      http:
+        paths:
+          - {path: /public-collection, pathType: Prefix, backend: {service: {name: nasv2, port: {number: 8090}}}}
+          - {path: /file-link, pathType: Prefix, backend: {service: {name: nasv2, port: {number: 8090}}}}
+          - {path: /public-memory, pathType: Prefix, backend: {service: {name: nasv2, port: {number: 8090}}}}
+          - {path: /ping, pathType: Exact, backend: {service: {name: nasv2, port: {number: 8090}}}}
+    # Téléchargements présignés (retirer cette règle si museum n'utilise pas s3.ffd.link)
+    - host: s3.ffd.link
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: nasv2, port: {number: 9000}}
+  tls:
+    - hosts: ["*.ffd.link"]
+      secretName: ffd-link-tls
+YAML
 
-# 3. Restreindre tous les autres hôtes
+# 2. Retirer de l'Ingress principal les hôtes devenus dédiés
+#    (ente-api reste : sa règle sans chemin est en local-only, les chemins de
+#    partage de ente-share sont plus spécifiques donc prioritaires)
+ops=$(kubectl -n serviceredirect get ing homeserveringress -o json | jq -c \
+  '[.spec.rules | to_entries[]
+    | select(.value.host | IN("openbao.ffd.link","ente-albums.ffd.link","s3.ffd.link"))
+    | .key] | sort | reverse | map({op:"remove", path:"/spec/rules/\(.)"})')
+kubectl -n serviceredirect patch ing homeserveringress --type json -p "$ops"
+
+# 3. Restreindre tous les hôtes restants
 kubectl -n serviceredirect annotate ing homeserveringress --overwrite \
   traefik.ingress.kubernetes.io/router.middlewares=traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
 ```
 
-Retour arrière : `kubectl -n serviceredirect annotate ing homeserveringress traefik.ingress.kubernetes.io/router.middlewares-`
+Retour arrière : `kubectl -n serviceredirect annotate ing homeserveringress traefik.ingress.kubernetes.io/router.middlewares-` (et `kubectl -n serviceredirect delete ing ente-share openbao` après avoir remis leurs règles dans `homeserveringress`).
+
+### Partage Ente (liens publics)
+
+Les destinataires d'un lien de partage n'ont ni compte ni NetBird. Ils utilisent :
+
+- `ente-albums.ffd.link` : visionneuse web des albums partagés ;
+- `ente-api.ffd.link`, **uniquement** `/public-collection/*`, `/file-link/*`, `/public-memory/*` et `/ping` (routes publiques de museum) ; le reste de l'API (compte, albums privés) reste en `local-only` ;
+- `s3.ffd.link` : téléchargement des photos par URL S3 présignées.
+
+Traefik donne la priorité à la règle la plus longue : le routeur `Host + PathPrefix` de `ente-share` l'emporte sur le routeur `Host` seul de `homeserveringress`.
+
+À vérifier dans `museum.yaml` : si l'endpoint S3 n'est **pas** `s3.ffd.link`, retirer la règle `s3.ffd.link` de `ente-share` (S3 reste alors en `local-only`). Protéger les liens dans Ente (mot de passe, expiration).
 
 ## 2. DNS pour le LAN et les pairs NetBird
 
@@ -96,7 +151,7 @@ ligne « proxy (SSO) » du tableau :
 | Domaine | Cible | Port |
 |---------|-------|------|
 | `jellyseerr.proxy.ffd.link` | `10.10.0.245` | 30042 |
-| `ente.proxy.ffd.link` / `ente-albums.proxy.ffd.link` | `10.10.0.245` | 3000 / 3002 |
+| `ente.proxy.ffd.link` | `10.10.0.245` | 3000 |
 | `s3-console.proxy.ffd.link` | `10.10.0.245` | 9002 |
 | `nas.proxy.ffd.link` | `10.10.0.245` | 80 |
 | `openbao.proxy.ffd.link` | `10.10.0.245` | 14000 |
@@ -112,5 +167,6 @@ HTTPS), vérifier le schéma attendu par le backend.
 - Depuis la 4G sans NetBird : 403.
 - Téléphone avec NetBird : application Jellyfin / Ente / Vaultwarden OK.
 - Navigateur distant : `https://nas.proxy.ffd.link` → login SSO.
+- Partage Ente : ouvrir un lien d'album depuis la 4G sans NetBird → l'album s'affiche, photos comprises ; `curl -I https://ente-api.ffd.link/` depuis la 4G → 403.
 - External Secrets : `kubectl get clustersecretstore openbao-backend` → `Valid`, et
   `kubectl get externalsecret -A` sans erreur.
