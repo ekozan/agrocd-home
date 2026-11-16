@@ -34,6 +34,10 @@ Middlewares dans `init/03-traefik-middlewares.yaml` :
 `local-only-cluster` (+ pods `10.42/16`, pour openbao : External Secrets l'appelle
 depuis le cluster via `https://openbao.ffd.link`).
 
+`homeserveringress` utilise `local-only-cluster` (et non `local-only`) : les pairs
+NetBird atteignent Traefik via le routeur du cluster, qui fait du masquerade ;
+Traefik voit alors une IP de pod `10.42.x.x` (constaté dans les logs d'accès).
+
 Un middleware s'applique à tout l'Ingress : openbao et le partage Ente (albums,
 S3) ont donc leur propre Ingress. Tout est dans Git (`ingress.yaml`,
 `nasv2.yaml`) et géré par l'Application ArgoCD `serviceredirect`

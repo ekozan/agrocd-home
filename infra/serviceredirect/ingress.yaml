@@ -1,6 +1,7 @@
 # Ingress des services du NAS. Mêmes noms que les objets Rancher existants :
 # ArgoCD les adopte (pas de doublon d'hôtes). Accès : LAN + pairs NetBird
-# (middleware local-only) ; le partage public Ente et openbao ont leur Ingress.
+# (middleware local-only-cluster : les pairs NetBird arrivent via le routeur du
+# cluster, dont l'IP de pod 10.42.x.x est vue par Traefik) ; le partage public Ente et openbao ont leur Ingress.
 # Wave 0 pour openbao/ente-share, wave 1 pour l'Ingress principal : les hôtes
 # retirés de ce dernier sont déjà servis par leur Ingress dédié.
 # Delete=false : supprimer l'Application ne supprime pas ces Ingress.
@@ -13,7 +14,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
     argocd.argoproj.io/sync-options: Delete=false
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
