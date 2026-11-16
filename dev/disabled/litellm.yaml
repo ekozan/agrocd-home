@@ -1,3 +1,5 @@
+# DÉSACTIVÉ. Pour réactiver : git mv dev/disabled/litellm*.yaml dev/ (Application + ExternalSecret).
+# La base `litellm` (infra/postgres) et les données OpenBao ne sont pas touchées.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
