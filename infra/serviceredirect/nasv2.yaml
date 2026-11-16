@@ -1,0 +1,54 @@
+# Service sans sélecteur + Endpoints vers le NAS (10.10.0.245).
+# Mêmes noms/ports que l'objet Rancher existant : ArgoCD l'adopte.
+# Delete=false : supprimer l'Application ne supprime pas ces objets.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nasv2
+  namespace: serviceredirect
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ipFamilyPolicy: RequireDualStack
+  ipFamilies: [IPv4, IPv6]
+  ports:
+    - {name: http, port: 80, protocol: TCP, targetPort: 80}
+    - {name: enteapi, port: 8090, protocol: TCP, targetPort: 8090}
+    - {name: entealbums, port: 3002, protocol: TCP, targetPort: 3002}
+    - {name: ente, port: 3000, protocol: TCP, targetPort: 3000}
+    - {name: cloud, port: 30027, protocol: TCP, targetPort: 30027}
+    - {name: jellyfin, port: 8096, protocol: TCP, targetPort: 8096}
+    - {name: jellyseerr, port: 30042, protocol: TCP, targetPort: 30042}
+    - {name: openbao, port: 14000, protocol: TCP, targetPort: 14000}
+    - {name: homebox, port: 30149, protocol: TCP, targetPort: 30149}
+    - {name: vault, port: 20080, protocol: TCP, targetPort: 20080}
+    - {name: s3, port: 9000, protocol: TCP, targetPort: 9000}
+    - {name: s3api, port: 9002, protocol: TCP, targetPort: 9002}
+    - {name: komga, port: 30048, protocol: TCP, targetPort: 30048}
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: nasv2
+  namespace: serviceredirect
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+subsets:
+  - addresses:
+      - ip: 10.10.0.245
+    ports:
+      - {name: http, port: 80, protocol: TCP}
+      - {name: enteapi, port: 8090, protocol: TCP}
+      - {name: entealbums, port: 3002, protocol: TCP}
+      - {name: ente, port: 3000, protocol: TCP}
+      - {name: cloud, port: 30027, protocol: TCP}
+      - {name: jellyfin, port: 8096, protocol: TCP}
+      - {name: jellyseerr, port: 30042, protocol: TCP}
+      - {name: openbao, port: 14000, protocol: TCP}
+      - {name: homebox, port: 30149, protocol: TCP}
+      - {name: vault, port: 20080, protocol: TCP}
+      - {name: s3, port: 9000, protocol: TCP}
+      - {name: s3api, port: 9002, protocol: TCP}
+      - {name: komga, port: 30048, protocol: TCP}

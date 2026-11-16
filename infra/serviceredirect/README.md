@@ -1,6 +1,6 @@
 # serviceredirect : services du NAS derrière Traefik
 
-Namespace `serviceredirect`, **géré par Rancher** (pas par ArgoCD) :
+Namespace `serviceredirect`, repris par ArgoCD (App `serviceredirect`, `infra/14-serviceredirect.yaml`) ; anciennement géré par Rancher :
 
 - Service `nasv2` (headless) + Endpoints → NAS `10.10.0.245`
 - Ingress `homeserveringress` (classe `traefik`, TLS `ffd-link-tls`) : un hôte
@@ -35,88 +35,41 @@ Middlewares dans `init/03-traefik-middlewares.yaml` :
 depuis le cluster via `https://openbao.ffd.link`).
 
 Un middleware s'applique à tout l'Ingress : openbao et le partage Ente (albums,
-S3) sont donc sortis dans leurs propres Ingress. **À faire avec `kubectl`** (pas dans l'UI Rancher, qui pourrait
-écraser les modifications), **dans cet ordre** et après le merge/sync de la PR :
+S3) ont donc leur propre Ingress. Tout est dans Git (`ingress.yaml`,
+`nasv2.yaml`) et géré par l'Application ArgoCD `serviceredirect`
+(`infra/14-serviceredirect.yaml`).
+
+### Reprise par ArgoCD (noms identiques, pas de doublon d'hôtes)
+
+Les manifests gardent les noms des objets Rancher (`nasv2`, `homeserveringress`) :
+ArgoCD les **adopte** au lieu d'en créer de nouveaux, donc aucun hôte en double
+et pas de coupure. À la première sync :
+
+1. wave 0 : création des Ingress `openbao` et `ente-share` ;
+2. wave 1 : `homeserveringress` perd les hôtes openbao, ente-albums et s3 (déjà
+   servis par leur Ingress) et gagne `local-only`.
+
+Les objets gardent `Delete=false` : supprimer l'Application ArgoCD ne supprime ni
+le Service, ni les Endpoints, ni les Ingress.
+
+Hors périmètre ArgoCD (reste géré à la main) : le Service et les Endpoints
+`homev2` (Home Assistant, `10.10.0.244:8123`). L'Ingress y fait seulement
+référence.
+
+Avant de merger :
 
 ```bash
-# 1a. Ingress dédié openbao (local-only-cluster)
-kubectl apply -f - <<'YAML'
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: openbao
-  namespace: serviceredirect
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: openbao.ffd.link
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service: {name: nasv2, port: {number: 14000}}
-  tls:
-    - hosts: ["*.ffd.link"]
-      secretName: ffd-link-tls
-YAML
-
-# 1b. Partage Ente public (CrowdSec seulement, sans local-only), cf. § Partage Ente
-kubectl apply -f - <<'YAML'
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ente-share
-  namespace: serviceredirect
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: ente-albums.ffd.link
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service: {name: nasv2, port: {number: 3002}}
-    - host: ente-api.ffd.link
-      http:
-        paths:
-          - {path: /public-collection, pathType: Prefix, backend: {service: {name: nasv2, port: {number: 8090}}}}
-          - {path: /file-link, pathType: Prefix, backend: {service: {name: nasv2, port: {number: 8090}}}}
-          - {path: /public-memory, pathType: Prefix, backend: {service: {name: nasv2, port: {number: 8090}}}}
-          - {path: /ping, pathType: Exact, backend: {service: {name: nasv2, port: {number: 8090}}}}
-    # Téléchargements présignés (retirer cette règle si museum n'utilise pas s3.ffd.link)
-    - host: s3.ffd.link
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service: {name: nasv2, port: {number: 9000}}
-  tls:
-    - hosts: ["*.ffd.link"]
-      secretName: ffd-link-tls
-YAML
-
-# 2. Retirer de l'Ingress principal les hôtes devenus dédiés
-#    (ente-api reste : sa règle sans chemin est en local-only, les chemins de
-#    partage de ente-share sont plus spécifiques donc prioritaires)
-ops=$(kubectl -n serviceredirect get ing homeserveringress -o json | jq -c \
-  '[.spec.rules | to_entries[]
-    | select(.value.host | IN("openbao.ffd.link","ente-albums.ffd.link","s3.ffd.link"))
-    | .key] | sort | reverse | map({op:"remove", path:"/spec/rules/\(.)"})')
-kubectl -n serviceredirect patch ing homeserveringress --type json -p "$ops"
-
-# 3. Restreindre tous les hôtes restants
-kubectl -n serviceredirect annotate ing homeserveringress --overwrite \
-  traefik.ingress.kubernetes.io/router.middlewares=traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+kubectl -n serviceredirect get svc,endpoints,ing          # état actuel
+kubectl -n argocd get application serviceredirect         # absent : créé par l'app `infra`
 ```
 
-Retour arrière : `kubectl -n serviceredirect annotate ing homeserveringress traefik.ingress.kubernetes.io/router.middlewares-` (et `kubectl -n serviceredirect delete ing ente-share openbao` après avoir remis leurs règles dans `homeserveringress`).
+Après la sync (facultatif) : retirer les métadonnées Rancher devenues inutiles
+(`objectset.rio.cattle.io/*`) pour qu'il ne les réapplique pas, et éviter toute
+modification via l'UI Rancher.
+
+Retour arrière : retirer l'annotation `traefik.ingress.kubernetes.io/router.middlewares`
+dans `ingress.yaml` (ou `kubectl -n serviceredirect annotate ing homeserveringress traefik.ingress.kubernetes.io/router.middlewares-`,
+ArgoCD la remettra tant que le commit est en place).
 
 ### Partage Ente (liens publics)
 
@@ -128,7 +81,7 @@ Les destinataires d'un lien de partage n'ont ni compte ni NetBird. Ils utilisent
 
 Traefik donne la priorité à la règle la plus longue : le routeur `Host + PathPrefix` de `ente-share` l'emporte sur le routeur `Host` seul de `homeserveringress`.
 
-À vérifier dans `museum.yaml` : si l'endpoint S3 n'est **pas** `s3.ffd.link`, retirer la règle `s3.ffd.link` de `ente-share` (S3 reste alors en `local-only`). Protéger les liens dans Ente (mot de passe, expiration).
+L'endpoint S3 de museum est bien `s3.ffd.link` (confirmé). Protéger les liens dans Ente (mot de passe, expiration).
 
 ## 2. DNS pour le LAN et les pairs NetBird
 
