@@ -52,7 +52,7 @@ spec:
               Enabled: false
             Database:
               Postgres:
-                Host: postgresql
+                Host: pg-main-rw.database.svc
                 Port: 5432
                 Database: zitadel
                 MaxOpenConns: 20
