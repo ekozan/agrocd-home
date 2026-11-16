@@ -27,7 +27,7 @@ spec:
   source:
     chart: zitadel
     repoURL: https://charts.zitadel.com
-    targetRevision: 9.34.*
+    targetRevision: 10.5.*
     helm:
       releaseName: zitadel
       valuesObject:  
@@ -38,6 +38,10 @@ spec:
         login:
           ingress:
             enabled: true
+          # Chart 10 : keypair X.509 du login client épinglé via cert-manager
+          # (infra/pre-zitadel/login-service-key.yaml). Sans ça, Argo CD (pas de
+          # lookup) régénérerait une clé à chaque rendu.
+          loginServiceKeySecretName: zitadel-login-service-key
           image:
             # Overrides the image tag whose default is the chart appVersion.
             tag: "v4.19.5"
