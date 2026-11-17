@@ -1,0 +1,35 @@
+# Mermaid Live Editor — éditeur de diagrammes Mermaid (site statique, nginx).
+# Image officielle : ghcr.io/mermaid-js/mermaid-live-editor (épinglée par digest :
+# seuls les tags `latest` / `nightly` existent sur ghcr.io).
+#
+# Accès : uniquement via le reverse proxy NetBird (`mermaid.proxy.ffd.link`,
+# SSO Zitadel), cf. dev/mermaid-live/README.md. Pas d'Ingress Traefik : le
+# Service reste en ClusterIP.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mermaid-live
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: mermaid-live
+  source:
+    repoURL: https://github.com/ekozan/agrocd-home.git
+    targetRevision: HEAD
+    path: ./dev/mermaid-live
+  syncPolicy:
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
