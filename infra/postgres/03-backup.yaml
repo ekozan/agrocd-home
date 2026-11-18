@@ -1,0 +1,81 @@
+# Sauvegardes de pg-main (plugin Barman Cloud) : base chaque nuit + WAL en
+# continu → restauration à un instant donné (PITR) sur 30 jours.
+#
+# Prérequis manuels (hors Git) :
+#   1. bucket `pg-backups` sur le S3 du NAS ;
+#   2. un utilisateur S3 dédié, limité aux buckets de sauvegarde ;
+#   3. ses clés dans OpenBao : kv/kubernetes/backup/s3
+#      { access_key_id, secret_access_key }.
+# Restauration + test : infra/postgres/restore-test/README.md.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: pg-main-s3
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: pg-main-s3
+    creationPolicy: Owner
+  data:
+    - secretKey: ACCESS_KEY_ID
+      remoteRef:
+        key: kubernetes/backup/s3
+        property: access_key_id
+    - secretKey: ACCESS_SECRET_KEY
+      remoteRef:
+        key: kubernetes/backup/s3
+        property: secret_access_key
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: pg-main-store
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  # Fenêtre de restauration : 30 jours (les sauvegardes plus anciennes sont
+  # supprimées après la sauvegarde suivante).
+  retentionPolicy: "30d"
+  configuration:
+    destinationPath: s3://pg-backups/pg-main
+    # IP du NAS en direct (HTTP, LAN) : pas de dépendance au DNS ni au hairpin
+    # NAT pour l'archivage WAL.
+    endpointURL: http://10.10.0.245:9000
+    s3Credentials:
+      accessKeyId:
+        name: pg-main-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: pg-main-s3
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+# Sauvegarde de base chaque nuit à 02:00 (cron à 6 champs : secondes en tête).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-main-daily
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  schedule: "0 0 2 * * *"
+  # Première sauvegarde dès la création (valide la chaîne complète).
+  immediate: true
+  backupOwnerReference: self
+  method: plugin
+  cluster:
+    name: pg-main
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

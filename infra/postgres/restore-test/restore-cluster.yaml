@@ -1,0 +1,31 @@
+# Cluster JETABLE de test de restauration (non synchronisé par ArgoCD :
+# infra/postgres est en `directory.recurse: false`). À appliquer à la main,
+# voir README.md. Même namespace que l'ObjectStore `pg-main-store`.
+#
+# Pas de section `plugins` : ce cluster n'archive PAS de WAL, il ne doit pas
+# écrire dans le bucket de production.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-restore-test
+  namespace: database
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: 10Gi
+    storageClass: longhorn
+  bootstrap:
+    recovery:
+      source: pg-main
+      # PITR : décommenter pour restaurer à un instant précis (UTC), par ex.
+      # juste avant une erreur. Sans cette section : jusqu'au dernier WAL.
+      # recoveryTarget:
+      #   targetTime: "2026-11-20 10:00:00+00"
+  externalClusters:
+    - name: pg-main
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: pg-main-store
+          serverName: pg-main

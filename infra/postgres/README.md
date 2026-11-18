@@ -12,6 +12,8 @@ avec son **rôle propriétaire**.
 | `00-ca-bundle.yaml` | ConfigMap `pg-main-ca` (CA pour `verify-full` côté client) |
 | `01-cluster.yaml` | Cluster `pg-main` + **rôles** (`spec.managed.roles`) |
 | `02-db-<app>.yaml` | **Une base par application** (CRD `Database`) |
+| `03-backup.yaml` | Sauvegardes : ExternalSecret S3, `ObjectStore`, `ScheduledBackup` (plugin Barman Cloud, `infra/03-cnpg-barman-plugin.yaml`) |
+| `restore-test/` | Test et procédure de **restauration** (Cluster jetable + `verify.sh`, **non** synchronisé) |
 | `migration/` | Jobs `pg_dump`/`pg_restore` one-shot (**non** synchronisés par ArgoCD) |
 
 > Le préfixe numérique des fichiers = la valeur de `argocd.argoproj.io/sync-wave`

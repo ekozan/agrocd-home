@@ -1,0 +1,37 @@
+# Plugin Barman Cloud pour CloudNativePG : sauvegardes de base + archivage WAL
+# (PITR) de `pg-main` vers un stockage S3. Doit tourner dans le namespace de
+# l'opérateur (cnpg-system). Nécessite cert-manager (wave 1).
+# Config côté base : infra/postgres/03-backup.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-barman-plugin
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: cnpg-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+  source:
+    chart: plugin-barman-cloud
+    repoURL: https://cloudnative-pg.github.io/charts
+    targetRevision: 0.9.0
+    helm:
+      releaseName: plugin-barman-cloud
