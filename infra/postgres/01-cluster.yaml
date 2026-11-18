@@ -25,6 +25,15 @@ spec:
     serverCASecret: pg-main-server-cert
     serverTLSSecret: pg-main-server-cert
 
+  # Archivage WAL + sauvegardes vers le S3 (infra/postgres/03-backup.yaml).
+  # ⚠️ Ajouter ce plugin redémarre l'unique instance (sidecar) : coupure
+  # courte de toutes les bases.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-main-store
+
   storage:
     size: 10Gi
     storageClass: longhorn
