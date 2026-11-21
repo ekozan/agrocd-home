@@ -45,21 +45,27 @@ spec:
           config:
             server: 
               ROOT_URL: https://git.ffd.link
+            # Base sur l'instance CNPG centralisée pg-main (infra/postgres).
+            # Rôle/base `gitea`, mot de passe injecté depuis le Secret
+            # `gitea-db` (répliqué depuis le ns database).
+            database:
+              DB_TYPE: postgres
+              HOST: pg-main-rw.database.svc:5432
+              NAME: gitea
+              USER: gitea
+              SSL_MODE: require
+          additionalConfigFromEnvs:
+            - name: GITEA__DATABASE__PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-db
+                  key: password
         postgresql-ha:
           enabled: false
+        # Ancien PostgreSQL embarqué (Bitnami) désactivé : données migrées
+        # vers pg-main (infra/postgres/migration/03-gitea.yaml).
         postgresql:
-          image:
-            repository: bitnamilegacy/postgresql
-            tag: 16
-          enabled: true
-          global:
-            postgresql:
-              service:
-                ports:
-                  postgresql: 5432
-          primary:
-            persistence:
-              size: 10Gi
+          enabled: false
         valkey-cluster:
           enabled: false
         valkey:
