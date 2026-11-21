@@ -23,7 +23,7 @@ spec:
       containers:
         - name: dashboard
           # Versionné à part (v2.x), indépendamment du management.
-          image: netbirdio/dashboard:v2.97.0
+          image: netbirdio/dashboard:v2.98.0
           imagePullPolicy: IfNotPresent
           env:
             - name: AUTH_AUTHORITY
