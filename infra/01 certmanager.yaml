@@ -18,6 +18,10 @@ spec:
       valuesObject:    
         crds:
           enabled: true
+        # Tous les composants (controller, webhook, cainjector, startupapicheck)
+        # cf. init/resource-policies/priorityclasses.yaml
+        global:
+          priorityClassName: homelab-critical
         # Résolveurs publics pour les checks DNS-01 (SOA + propagation),
         # indépendants du DNS du cluster/réseau local.
         extraArgs:

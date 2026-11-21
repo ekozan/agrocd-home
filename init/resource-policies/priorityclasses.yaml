@@ -8,6 +8,25 @@
 #
 # Coût runtime : zéro (objets purement déclaratifs, aucun pod déployé).
 #
+# Hiérarchie (valeur haute = évincé en dernier, peut préempter les autres) :
+#   system-node-critical / system-cluster-critical  2 000 001 000 / 2 000 000 000
+#     → CSI democratic-csi (défaut du chart), CoreDNS, composants k8s
+#   longhorn-critical                               1 000 000 000
+#     → Longhorn (créée et utilisée par Longhorn lui-même, hors de ce repo)
+#   homelab-ultra-critical                            100 000 000
+#     (définie dans init/00-priorityclass-ultra.yaml, PAS ici : cette app est
+#      en wave 12 alors que Traefik/CrowdSec, qui la référencent, sont en 0/1)
+#     → chemin d'accès à tout le reste : Traefik, CrowdSec AppSec (le bouncer
+#       bloque tout si l'AppSec est injoignable), PostgreSQL pg-main +
+#       opérateur CNPG, NetBird (management/signal/relay/proxy/router), Zitadel
+#   homelab-critical                                    1 000 000
+#     → infra de support : cert-manager, external-secrets, dashboard NetBird
+#   homelab-standard (globalDefault)                        1 000
+#   homelab-low                                            -1 000
+#
+# Le stockage reste AU-DESSUS de ses consommateurs (une base sans son volume
+# ne sert à rien) : ne pas dépasser longhorn-critical ici.
+#
 # Usage : ajouter `priorityClassName: homelab-critical` (ou -low) dans le
 # spec des pods concernés. Les pods sans classe explicite reçoivent
 # `homelab-standard` (globalDefault). Les classes ne s'appliquent qu'aux

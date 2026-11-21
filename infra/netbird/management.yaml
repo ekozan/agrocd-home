@@ -177,6 +177,7 @@ spec:
         app.kubernetes.io/name: netbird-management
         app.kubernetes.io/instance: netbird
     spec:
+      priorityClassName: homelab-ultra-critical
       automountServiceAccountToken: false
       containers:
         - name: management

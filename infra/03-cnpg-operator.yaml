@@ -32,6 +32,7 @@ spec:
           create: true
         config:
           clusterWide: true
+        priorityClassName: homelab-ultra-critical
         resources:
           requests:
             cpu: 100m

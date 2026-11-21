@@ -25,6 +25,8 @@ spec:
         # traefik3-* (acquisition de l'agent CrowdSec inchangée).
         deployment:
           kind: DaemonSet
+        # Ingress de tout le cluster (cf. init/resource-policies/priorityclasses.yaml)
+        priorityClassName: homelab-ultra-critical
         # Logs d'accès requis pour que l'agent CrowdSec parse le trafic.
         # ⚠️ Chart >= 41 : `logs.access.*` est devenu `accessLog.*` (BREAKING
         # CHANGE traefik-helm-chart#1887). Le schéma du chart refuse toute clé

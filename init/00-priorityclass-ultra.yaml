@@ -1,0 +1,28 @@
+# PriorityClass du chemin d'accès critique du homelab.
+#
+# Hiérarchie complète et usage : init/resource-policies/priorityclasses.yaml.
+#
+# Pourquoi ce fichier est ici et pas dans init/resource-policies/ :
+# l'Application resource-policies est en wave 12 de clusterinit, alors que
+# Traefik (wave 0) et CrowdSec (wave 1) référencent cette classe. Un pod qui
+# référence une PriorityClass inexistante est REFUSÉ à l'admission : le
+# DaemonSet Traefik ne pourrait plus recréer ses pods au rollout, l'app
+# traefik3 ne deviendrait jamais Healthy et clusterinit resterait bloqué
+# avant la wave 12. Wave -1 → la classe existe avant tout le reste.
+#
+# Valeur : sous le stockage (longhorn-critical 1e9, system-*-critical 2e9),
+# au-dessus de homelab-critical (1e6). Une base de données ou un ingress
+# sans son volume/CSI ne sert à rien : ne pas dépasser longhorn-critical.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: homelab-ultra-critical
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+value: 100000000
+globalDefault: false
+description: >-
+  Chemin d'accès critique du homelab : ingress Traefik, CrowdSec AppSec
+  (bloque tout le trafic si injoignable), PostgreSQL pg-main + opérateur
+  CNPG, NetBird (management, signal, relay, proxy, router), Zitadel.
+  Évincée après tout sauf le stockage (Longhorn, CSI) et le système.
