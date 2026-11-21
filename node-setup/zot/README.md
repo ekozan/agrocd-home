@@ -134,7 +134,7 @@ tokens expirent : pensez à les renouveler.
 
 ## Côté nœuds k3s
 
-Une fois Zot démarré, lancer sur chaque nœud, après `k3s-dns.sh` :
+Une fois Zot démarré, lancer sur chaque nœud :
 
 ```bash
 sudo ./node-setup/k3s-registries.sh
@@ -166,20 +166,16 @@ Son image doit **déjà être présente** sur le nœud, puisque les pulls sont j
    kubectl debug node/<node> --image=<image-locale> --profile=sysadmin -- sleep 3600
    ```
 
-3. Copier les scripts sur l'hôte :
-
-   ```bash
-   kubectl exec -i <pod> -- chroot /host sh -c 'cat > /root/k3s-dns.sh' < node-setup/k3s-dns.sh
-   ```
+3. Copier le script sur l'hôte :
 
    ```bash
    kubectl exec -i <pod> -- chroot /host sh -c 'cat > /root/k3s-registries.sh' < node-setup/k3s-registries.sh
    ```
 
-4. Les lancer **détachés** : le redémarrage de k3s coupe la session `kubectl exec`.
+4. Le lancer **détaché** : le redémarrage de k3s coupe la session `kubectl exec`.
 
    ```bash
-   kubectl exec <pod> -- chroot /host sh -c 'setsid nohup sh -c "bash /root/k3s-registries.sh; bash /root/k3s-dns.sh" > /root/node-setup.log 2>&1 &'
+   kubectl exec <pod> -- chroot /host sh -c 'setsid nohup bash /root/k3s-registries.sh > /root/node-setup.log 2>&1 &'
    ```
 
 5. Lire le résultat 1 à 2 minutes plus tard. Pendant le redémarrage de k3s, `kubectl` peut
