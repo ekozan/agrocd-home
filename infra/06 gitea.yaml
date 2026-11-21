@@ -31,6 +31,12 @@ spec:
     helm:
       releaseName: gitea
       valuesObject: 
+        # Le chart 12.7.0 embarque Gitea 1.27.0 (appVersion) ; on épingle
+        # l'image explicitement (Gitea est passé à la numérotation 28.x).
+        # Le chart ajoute le suffixe -rootless (image.rootless: true par défaut)
+        # → docker.gitea.com/gitea:28.4.0-rootless
+        image:
+          tag: "28.4.0"
         ingress:
           enabled: true
           # Protection CrowdSec (bouncer + AppSec) sur Gitea
