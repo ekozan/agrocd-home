@@ -90,7 +90,7 @@ spec:
     spec:
       containers:
         - name: oxicloud
-          image: diocrafts/oxicloud:0.8.6
+          image: diocrafts/oxicloud:0.10.1
           ports:
             - containerPort: 8086
               name: http
