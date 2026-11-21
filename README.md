@@ -81,6 +81,36 @@ autorisé sur l'OPNsense. Les noms qui n'existent que sur le DNS local (override
 sont plus résolus depuis les pods. Le repo n'en utilise pas : les services de l'OPNsense sont
 référencés par IP (`10.5.0.1`).
 
+### Authentification GitHub d'ArgoCD
+
+Sans identifiants, ArgoCD interroge GitHub en anonyme et finit par être limité. Le
+Secret `argocd-github-creds` (modèle `repo-creds` pour `https://github.com/ekozan/`) est
+produit par External Secrets depuis OpenBao
+([`infra/post-externalsecrets/argocd-github-creds.yaml`](infra/post-externalsecrets/argocd-github-creds.yaml)).
+
+1. Créer un PAT GitHub *fine-grained* : dépôt `ekozan/agrocd-home` uniquement, permission
+   **Contents: Read-only**.
+2. Le stocker dans OpenBao :
+
+   ```bash
+   bao kv put -mount=kv kubernetes/argocd/github token="github_pat_..."
+   ```
+
+3. **Uniquement si ArgoCD est déjà limité** (il ne peut alors pas lire ce manifest),
+   créer un Secret temporaire à la main :
+
+   ```bash
+   kubectl -n argocd create secret generic github-creds-bootstrap \
+     --from-literal=type=git \
+     --from-literal=url=https://github.com/ekozan/ \
+     --from-literal=username=x-access-token \
+     --from-literal=password="github_pat_..."
+   kubectl -n argocd label secret github-creds-bootstrap argocd.argoproj.io/secret-type=repo-creds
+   ```
+
+   Le supprimer quand `argocd-github-creds` existe
+   (`kubectl -n argocd get secret argocd-github-creds`).
+
 ---
 
 ## Installation
