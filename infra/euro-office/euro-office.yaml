@@ -55,7 +55,7 @@ spec:
         # doc_changes n'existe pas. Sans ça docservice logue « DB table
         # doc_changes does not exist », ne bind pas son port → nginx 502 → CrashLoop.
         - name: db-schema
-          image: ghcr.io/euro-office/documentserver:v9.3.2
+          image: ghcr.io/euro-office/documentserver:v9.3.8
           command:
             - /bin/bash
             - -c
@@ -85,7 +85,7 @@ spec:
               memory: 256Mi
       containers:
         - name: documentserver
-          image: ghcr.io/euro-office/documentserver:v9.3.2
+          image: ghcr.io/euro-office/documentserver:v9.3.8
           ports:
             - containerPort: 80
               name: http
