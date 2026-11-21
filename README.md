@@ -52,6 +52,35 @@ Kubernetes Cluster
 
 > ArgoCD doit être déjà installé et fonctionnel sur le cluster avant d'appliquer ce repo.
 
+### DNS des nœuds k3s (indépendant du DNS de l'hôte)
+
+Par défaut, CoreDNS transfère les requêtes vers le resolver de l'hôte (DHCP / OPNsense),
+et containerd l'utilise aussi pour télécharger les images. Quand ce resolver tombe,
+on obtient des erreurs comme `dial tcp: lookup quay.io: Try again`. Le script
+[`node-setup/k3s-dns.sh`](node-setup/k3s-dns.sh) supprime cette dépendance. Il est à lancer **une fois en root sur
+chaque nœud** :
+
+- il écrit `/etc/rancher/k3s/resolv.conf` (1.1.1.1, 9.9.9.9, 1.0.0.1) et règle k3s pour qu'il l'utilise
+  (`resolv-conf` dans `config.yaml.d/50-dns.yaml`) : CoreDNS et les pods
+  n'utilisent plus le DNS de l'hôte ;
+- il fixe ces mêmes resolvers sur l'hôte (systemd-resolved, sinon un `/etc/resolv.conf` statique),
+  parce que containerd télécharge les images en dehors de Kubernetes et ne passe jamais par CoreDNS.
+
+```bash
+sudo ./node-setup/k3s-dns.sh
+```
+
+Une fois tous les nœuds traités :
+
+```bash
+kubectl -n kube-system rollout restart deployment coredns
+```
+
+Les resolvers sont modifiables avec `DNS_SERVERS="…"`. Le port 53 sortant vers ces IP doit être
+autorisé sur l'OPNsense. Les noms qui n'existent que sur le DNS local (overrides Unbound) ne
+sont plus résolus depuis les pods. Le repo n'en utilise pas : les services de l'OPNsense sont
+référencés par IP (`10.5.0.1`).
+
 ---
 
 ## Installation
