@@ -81,6 +81,14 @@ autorisé sur l'OPNsense. Les noms qui n'existent que sur le DNS local (override
 sont plus résolus depuis les pods. Le repo n'en utilise pas : les services de l'OPNsense sont
 référencés par IP (`10.5.0.1`).
 
+### Cache d'images (Zot sur le NAS)
+
+Un cache « pull-through » Zot tourne sur le NAS (`10.10.0.245:5000`, app TrueNAS hors du cluster)
+pour docker.io, quay.io, ghcr.io et registry.k8s.io. Les nœuds le joignent par IP, avec retour
+automatique au registre d'origine s'il ne répond pas. Installation :
+[`node-setup/zot/README.md`](node-setup/zot/README.md). Configuration des nœuds :
+`sudo ./node-setup/k3s-registries.sh`.
+
 ### Authentification GitHub d'ArgoCD
 
 Sans identifiants, ArgoCD interroge GitHub en anonyme et finit par être limité. Le
