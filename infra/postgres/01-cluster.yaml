@@ -12,6 +12,9 @@ spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:16
   primaryUpdateStrategy: unsupervised
+  # Base de toutes les apps (Zitadel, Gitea, OxiCloud…) : cf.
+  # init/resource-policies/priorityclasses.yaml
+  priorityClassName: homelab-ultra-critical
 
   # Secret superuser `postgres` généré par CNPG (pg-main-superuser).
   # Utilisé par l'admin Zitadel et par les Jobs de migration.

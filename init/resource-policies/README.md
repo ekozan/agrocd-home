@@ -42,17 +42,27 @@ premiers sacrifiés, placés à l'aveugle). Sous pression mémoire, le kubelet
    important d'abord) ;
 2. à dépassement comparable, la **priorité la plus basse** d'abord.
 
-Trois classes sont fournies :
+Classes disponibles, de la plus prioritaire à la moins prioritaire :
 
-| Classe | Valeur | Usage |
-|--------|--------|-------|
-| `homelab-critical` | 1000000 | Ingress, DB, secrets, CSI — évincé en dernier |
+| Classe | Valeur | Workloads |
+|--------|--------|-----------|
+| `system-node-critical` / `system-cluster-critical` | 2e9 | CSI democratic-csi (défaut du chart), CoreDNS |
+| `longhorn-critical` | 1e9 | Longhorn (créée par Longhorn, hors repo) |
+| `homelab-ultra-critical` | 1e8 | Traefik, CrowdSec AppSec, pg-main + opérateur CNPG, NetBird (management, signal, relay, proxy, router) |
+| `homelab-critical` | 1e6 | cert-manager, external-secrets, dashboard NetBird |
 | `homelab-standard` | 1000 | Défaut global (appliqué automatiquement) |
 | `homelab-low` | -1000 | CI (act-runner), jobs batch — évincé en premier, ne préempte jamais |
 
-Assigner `homelab-critical` / `homelab-low` se fait progressivement, chart
-par chart, via `priorityClassName` dans les values Helm (ex. act-runner →
-`homelab-low`, traefik / pg-main → `homelab-critical`).
+Le stockage reste **au-dessus** de ses consommateurs : une base ou un
+ingress sans son volume ne sert à rien.
+
+`homelab-ultra-critical` est définie dans `init/00-priorityclass-ultra.yaml`
+(wave -1 de clusterinit) et non ici : cette app est en wave 12, alors que
+Traefik (wave 0) et CrowdSec (wave 1) la référencent. Un pod qui référence
+une PriorityClass inexistante est refusé à l'admission.
+
+Zitadel n'est pas couvert : son chart (10.x) n'expose pas
+`priorityClassName`.
 
 ## Limites connues
 

@@ -89,6 +89,9 @@ spec:
           enabled: false
         appsec:
           enabled: true
+          # Sur le chemin de chaque requête : crowdsecAppsecUnreachableBlock
+          # = true → AppSec évincé = TOUT le trafic Traefik bloqué.
+          priorityClassName: homelab-ultra-critical
           lapiURL: http://10.5.0.1:8080
           lapiHost: 10.5.0.1
           lapiPort: 8080

@@ -69,6 +69,7 @@ spec:
       labels:
         app: netbird-router
     spec:
+      priorityClassName: homelab-ultra-critical
       automountServiceAccountToken: false
       containers:
         - name: netbird

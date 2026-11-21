@@ -76,6 +76,7 @@ spec:
       labels:
         app: netbird-proxy
     spec:
+      priorityClassName: homelab-ultra-critical
       # Verrou des certificats en flock (NB_PROXY_CERT_LOCK_METHOD) : pas besoin
       # du token de ServiceAccount (le mode `auto` tenterait des Leases k8s).
       automountServiceAccountToken: false
