@@ -27,7 +27,7 @@ spec:
     - chart: kasm-helm
       repoURL: https://helm.kasm.com
       # La version du chart suit celle de Kasm (1.1190.x = Kasm 1.19.0).
-      targetRevision: 1.1190.6
+      targetRevision: 1.1190.9
       helm:
         releaseName: kasm
         valuesObject:
