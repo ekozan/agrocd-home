@@ -10,44 +10,39 @@
 ---
 # Bouncer CrowdSec (plugin maxlerebourg/crowdsec-bouncer-traefik-plugin v1.6.0).
 #
-# Ces deux middlewares étaient auparavant créés AU RUNTIME par le Job PostSync
-# crowdsec-bouncer-register (kubectl apply), donc absents de Git : une fois
-# supprimés du cluster, rien ne les recréait (hook exécuté seulement lors d'une
-# sync effective de clusterinit, et les hooks sont exclus du diff ArgoCD).
-# Ils sont désormais déclaratifs ; seule la clé du bouncer reste hors Git : elle
-# est lue au runtime par Traefik dans le Secret traefik/crowdsec-bouncer-key
-# (syntaxe urn:k8s:secret:<secret>:<clé>, Secret dans le même namespace que le
-# Middleware), Secret alimenté par le Job crowdsec-bouncer-register (hook Sync
-# wave 2, donc toujours AVANT ces Middlewares en wave 3).
+# Applique les décisions (bans) du LAPI hébergé sur le pare-feu OPNsense
+# (10.5.0.1:8080, plugin os-crowdsec) : blocklists communautaires + alertes de
+# l'agent CrowdSec du cluster (logs Traefik) + détections propres de l'OPNsense.
+# Plus d'AppSec (WAF) : le bouncer ne dépend plus d'aucun pod du cluster.
 #
-# LAPI : hébergé sur le pare-feu OPNsense (10.5.0.1:8080, plugin os-crowdsec),
-# où le bouncer `traefik-bouncer` doit être déclaré avec la même clé (cf. README).
-# L'AppSec (WAF), lui, reste dans le cluster.
+# Clé API : Secret traefik/crowdsec-bouncer-apikey, synchronisé depuis OpenBao
+# par external-secrets (02-crowdsec-bouncer.yaml), lu au runtime par Traefik
+# (urn:k8s:secret:<secret>:<clé>, Secret dans le namespace du Middleware).
+# Wave 0, comme l'ExternalSecret : ces Middlewares ne dépendent PLUS de la
+# santé de l'Application crowdsec (wave 1). Avant, ils étaient en wave 3 : un
+# agent CrowdSec en crash bloquait la sync de clusterinit et les Middlewares
+# n'étaient jamais recréés → 404 sur toutes les routes (incident 2026-11-21).
 #
 # Stream LAPI (mode stream) :
 #  - httpTimeoutSeconds (défaut 10) : le GET /v1/decisions/stream?startup=true
 #    renvoie TOUTES les décisions (blocklists communautaires/Console incluses) et
 #    ne se lisait plus en 10 s (« crowdsecQuery:readBody context deadline
-#    exceeded »). ⚠️ Ce délai s'applique AUSSI aux appels AppSec : on reste donc
-#    raisonnable, et sous updateIntervalSeconds (60 s) pour ne jamais lancer deux
-#    téléchargements complets en parallèle (le plugin fait `go work()` à chaque tick).
+#    exceeded »). On reste sous updateIntervalSeconds (60 s) pour ne jamais
+#    lancer deux téléchargements complets en parallèle.
 #  - updateMaxFailure (défaut 0) : au 1er échec, le plugin passe
 #    isCrowdsecStreamHealthy=false et renvoie 403 TECHNICAL_ISSUE à TOUT le monde
 #    (fail-closed), puis ne redemande plus que des flux complets (startup=true),
 #    les plus lents → cercle vicieux, jamais rétabli. -1 = fail-open : en cas
-#    d'échec, les décisions déjà en cache restent appliquées et le trafic passe.
-#    Les blocages AppSec (WAF inband) restent actifs.
+#    d'échec (OPNsense injoignable), les décisions déjà en cache restent
+#    appliquées et le trafic passe.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: crowdsec
   namespace: traefik
   annotations:
-    # Wave 3 : après le Job crowdsec-bouncer-register (hook Sync, wave 2) qui
-    # publie le Secret crowdsec-bouncer-key lu ci-dessous.
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
-  # WAF strict (corps entier inspecté), appliqué à TOUS les services publics.
   plugin:
     crowdsec:
       enabled: "true"
@@ -60,28 +55,21 @@ spec:
       updateMaxFailure: "-1"
       crowdsecLapiScheme: http
       crowdsecLapiHost: 10.5.0.1:8080
-      crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-key:apiKey"
-      crowdsecAppsecEnabled: "true"
-      crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
-      crowdsecAppsecScheme: http
-      crowdsecAppsecFailureBlock: "true"
-      crowdsecAppsecUnreachableBlock: "true"
+      crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-apikey:apiKey"
 ---
-# Identique à `crowdsec` + plafond d'inspection du corps AppSec
-# (crowdsecAppsecBodyLimit = 10 Mo). Réservé aux services à gros uploads
-# (OxiCloud) : sans plafond, le plugin transmet TOUT le corps à l'AppSec, qui
-# rejette au-delà de sa limite. 10 Mo inspectés (en-têtes + début de requête =
-# là où sont les attaques) ; au-delà, le corps streame vers le backend sans
-# inspection WAF. Relaxation confinée à OxiCloud (fichiers = blobs opaques).
+# ⚠️ Alias TEMPORAIRE de `crowdsec`, à supprimer une fois OxiCloud resynchronisé.
+# Il plafonnait l'inspection du corps par l'AppSec (gros uploads) ; sans AppSec
+# il n'a plus de raison d'être. OxiCloud référence désormais `crowdsec`, mais
+# l'app infra (OxiCloud) et clusterinit (ce fichier) se synchronisent
+# séparément : le supprimer dans le même commit ferait répondre 404 à
+# cloud.ffd.link entre les deux syncs.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: crowdsec-largebody
   namespace: traefik
   annotations:
-    # Wave 3 : après le Job crowdsec-bouncer-register (hook Sync, wave 2) qui
-    # publie le Secret crowdsec-bouncer-key lu ci-dessous.
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   plugin:
     crowdsec:
@@ -94,13 +82,7 @@ spec:
       updateMaxFailure: "-1"
       crowdsecLapiScheme: http
       crowdsecLapiHost: 10.5.0.1:8080
-      crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-key:apiKey"
-      crowdsecAppsecEnabled: "true"
-      crowdsecAppsecHost: crowdsec-appsec-service.crowdsec.svc.cluster.local:7422
-      crowdsecAppsecScheme: http
-      crowdsecAppsecFailureBlock: "false"
-      crowdsecAppsecUnreachableBlock: "true"
-      crowdsecAppsecBodyLimit: "10485760"
+      crowdsecLapiKey: "urn:k8s:secret:crowdsec-bouncer-apikey:apiKey"
 ---
 # Restreint l'accès aux réseaux locaux 10.10.x.x et 10.5.x.x, et aux pairs du
 # VPN NetBird (100.64.0.0/10, plage CGNAT de l'overlay).

@@ -10,7 +10,7 @@
 # Le proxy termine lui-même le TLS (Let's Encrypt, TLS-ALPN-01 sur le 443) et
 # parle au management en gRPC interne, en clair (NB_PROXY_ALLOW_INSECURE).
 #
-# ⚠️ Le passthrough contourne les middlewares Traefik : ni bouncer/AppSec
+# ⚠️ Le passthrough contourne les middlewares Traefik : ni bouncer
 # CrowdSec, ni access logs Traefik pour ces hôtes. La réputation IP CrowdSec est
 # faite par le proxy lui-même (LAPI OPNsense), à activer service par service
 # dans le dashboard (Access Control).

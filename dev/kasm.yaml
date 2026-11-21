@@ -45,7 +45,7 @@ spec:
             enabled: true
             ingressClassName: traefik
             annotations:
-              # Protection CrowdSec (bouncer + AppSec) + LAN/VPN uniquement :
+              # Protection CrowdSec (bouncer) + LAN/VPN uniquement :
               # l'accès depuis Internet passe par kasm.proxy.ffd.link (reverse
               # proxy NetBird, SSO Zitadel ; cf. infra/netbird/README.md).
               # ⚠️ Un Docker Agent hors LAN/VPN qui joint le manager via

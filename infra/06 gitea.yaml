@@ -33,7 +33,7 @@ spec:
       valuesObject: 
         ingress:
           enabled: true
-          # Protection CrowdSec (bouncer + AppSec) sur Gitea
+          # Protection CrowdSec (bouncer) sur Gitea
           annotations:
             traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:

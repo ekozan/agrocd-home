@@ -73,7 +73,7 @@ spec:
                     Mode: require #verify-ca
         ingress:
           enabled: true
-          # Protection CrowdSec (bouncer + AppSec) sur l'IdP Zitadel
+          # Protection CrowdSec (bouncer) sur l'IdP Zitadel
           annotations:
             traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
