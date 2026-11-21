@@ -52,8 +52,9 @@ spec:
       priority: 100
       middlewares:
         # Middlewares du namespace traefik (allowCrossNamespace: true)
-        - name: crowdsec
-          namespace: traefik
+        # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — à rétablir :
+        # - name: crowdsec
+        #   namespace: traefik
         # Accès LAN (10.10/16, 10.5/16) + VPN NetBird (100.64/10) uniquement
         - name: local-only
           namespace: traefik

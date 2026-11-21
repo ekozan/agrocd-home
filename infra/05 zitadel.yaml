@@ -74,8 +74,9 @@ spec:
         ingress:
           enabled: true
           # Protection CrowdSec (bouncer + AppSec) sur l'IdP Zitadel
-          annotations:
-            traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+          annotations: {}
+            # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
+            #   router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
             - host: idp.ffd.link
               paths:
