@@ -181,7 +181,7 @@ spec:
       containers:
         - name: management
           # Garder le même tag que signal, relay et reverse proxy.
-          image: netbirdio/management:0.83.1
+          image: netbirdio/management:0.83.2
           imagePullPolicy: IfNotPresent
           args:
             - --port=80
