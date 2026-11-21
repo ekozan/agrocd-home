@@ -37,7 +37,7 @@ spec:
     # dépôt déclaré avec enableOCI (dev/oci-repositories.yaml).
     - chart: kelos
       repoURL: ghcr.io/kelos-dev/charts
-      targetRevision: 0.63.0
+      targetRevision: 0.64.0
       helm:
         releaseName: kelos
         valuesObject:
