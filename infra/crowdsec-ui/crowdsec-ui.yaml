@@ -274,7 +274,9 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
     # CrowdSec (bouncer + AppSec) + accès LAN uniquement
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
+    #   router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

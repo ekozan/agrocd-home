@@ -233,7 +233,8 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
     # Middleware à corps AppSec plafonné (gros uploads OxiCloud) — cf.
     # init/02-crowdsec-bouncer.yaml. Les autres services gardent traefik-crowdsec.
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec-largebody@kubernetescrd
+    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
+    #   router.middlewares: traefik-crowdsec-largebody@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

@@ -14,7 +14,9 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
     argocd.argoproj.io/sync-options: Delete=false
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
+    #   router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only-cluster@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
@@ -132,7 +134,9 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/sync-options: Delete=false
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
+    #   router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only-cluster@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
@@ -163,7 +167,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/sync-options: Delete=false
-    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
+    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
+    #   router.middlewares: traefik-crowdsec@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
