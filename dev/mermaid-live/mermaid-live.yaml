@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mermaid-live
+  namespace: mermaid-live
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mermaid-live
+  template:
+    metadata:
+      labels:
+        app: mermaid-live
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101   # utilisateur nginx de l'image alpine
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mermaid-live
+          # latest au 2026-11-17 ; Renovate suit le digest.
+          image: ghcr.io/mermaid-js/mermaid-live-editor@sha256:166b613069e4716f2d289f0c1504aec723dedf38e94ec337e0aac139840eeefa
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          # nginx (image non « unprivileged ») écrit son cache et son pid ici.
+          volumeMounts:
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mermaid-live
+  namespace: mermaid-live
+spec:
+  selector:
+    app: mermaid-live
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# default-deny ingress dans le namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: mermaid-live
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Reverse proxy NetBird (cible « Proxy Cluster ») ou routing peer (cible
+# « Resource ») → éditeur, depuis le namespace netbird.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netbird-to-mermaid-live
+  namespace: mermaid-live
+spec:
+  podSelector:
+    matchLabels:
+      app: mermaid-live
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: netbird
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["netbird-proxy", "netbird-router"]
+      ports:
+        - protocol: TCP
+          port: 8080

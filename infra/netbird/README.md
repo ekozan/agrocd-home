@@ -171,6 +171,7 @@ ne fonctionnent pas (constaté en 0.80) : une ressource domaine donne « invalid
 | `crowdsec.proxy.ffd.link` | ClusterIP `crowdsec/crowdsec-web-ui`, `http` 3000 | `crowdsec.ffd.link` (`local-only`) |
 | `kasm.proxy.ffd.link` | ClusterIP du Service proxy de Kasm (`kubectl -n kasm get svc`) | `kasm.ffd.link` (`local-only`) |
 | `kelos.proxy.ffd.link` | ClusterIP `kelos-system/kelos-console-server`, `http` 80 | — (pas de route Traefik, cf. `dev/kelos/`) |
+| `mermaid.proxy.ffd.link` | ClusterIP `mermaid-live/mermaid-live`, `http` 80 | — (pas de route Traefik, cf. `dev/mermaid-live/`) |
 | `home.proxy.ffd.link` | Peer `homeassistant` | — |
 
 ```bash
