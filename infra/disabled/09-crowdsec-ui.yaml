@@ -1,7 +1,9 @@
 # DÉSACTIVÉ TEMPORAIREMENT (Application Degraded). Pour réactiver : remettre ce fichier
 # dans infra/ (git mv infra/disabled/09-crowdsec-ui.yaml infra/09-crowdsec-ui.yaml).
 # Le finalizer supprime les ressources de infra/crowdsec-ui/ (dont le PVC de 1 Gi,
-# non critique) ; le Secret crowdsec-web-ui-credentials est conservé.
+# non critique). Avant de réactiver : renseigner `ui_password` dans OpenBao
+# (kv/kubernetes/crowdsec/opnsense) et déclarer la machine sur l'OPNsense
+# (cf. README « Protection CrowdSec »).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -9,7 +11,7 @@ metadata:
   namespace: argocd
   annotations:
     # Après les network-policies (wave 8) ; le moteur CrowdSec (LAPI) provient
-    # de la couche init — le Job d'enregistrement attend que le LAPI soit prêt.
+    # de la couche init.
     argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io

@@ -205,7 +205,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    # Protection CrowdSec (bouncer + AppSec) sur le homeserver Matrix
+    # Protection CrowdSec (bouncer) sur le homeserver Matrix
     traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
 spec:
   ingressClassName: traefik
@@ -235,7 +235,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    # Protection CrowdSec (bouncer + AppSec) sur le well-known de fédération
+    # Protection CrowdSec (bouncer) sur le well-known de fédération
     traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
 spec:
   ingressClassName: traefik
