@@ -1,0 +1,46 @@
+# Identifiants GitHub d'ArgoCD (modèle de credentials « repo-creds »).
+#
+# Sans authentification, ArgoCD interroge github.com en anonyme (git ls-remote
+# / fetch à chaque réconciliation de chaque Application) et finit par se faire
+# limiter par GitHub. Ce modèle s'applique à TOUS les dépôts dont l'URL commence
+# par https://github.com/ekozan/ : rien à changer dans les Applications.
+#
+# Token : PAT GitHub « fine-grained », dépôt ekozan/agrocd-home uniquement,
+# permission Contents: Read-only (rien d'autre). Il expire : penser à le
+# renouveler dans OpenBao avant l'échéance.
+# OpenBao : kv/kubernetes/argocd/github, propriété `token`.
+#   bao kv put -mount=kv kubernetes/argocd/github token="github_pat_..."
+#
+# Premier déploiement : ce manifest est lui-même lu depuis GitHub. Si ArgoCD
+# est déjà limité, créer le Secret une fois à la main (cf. README, section
+# « Authentification GitHub d'ArgoCD »).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-github-creds
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: argocd-github-creds
+    creationPolicy: Owner
+    # Retain (défaut) : si OpenBao est injoignable, le Secret existant est gardé.
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repo-creds
+      data:
+        type: git
+        url: https://github.com/ekozan/
+        # Avec un PAT, GitHub ignore le nom d'utilisateur (il doit juste être non vide).
+        username: x-access-token
+        password: "{{ .token | nospace }}"
+  data:
+    - secretKey: token
+      remoteRef:
+        key: kubernetes/argocd/github
+        property: token

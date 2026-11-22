@@ -52,6 +52,44 @@ Kubernetes Cluster
 
 > ArgoCD doit être déjà installé et fonctionnel sur le cluster avant d'appliquer ce repo.
 
+### Cache d'images (Zot sur le NAS)
+
+Un cache « pull-through » Zot tourne sur le NAS (`10.10.0.245:5000`, app TrueNAS hors du cluster)
+pour docker.io, quay.io, ghcr.io et registry.k8s.io. Les nœuds le joignent par IP, avec retour
+automatique au registre d'origine s'il ne répond pas. Installation :
+[`node-setup/zot/README.md`](node-setup/zot/README.md). Configuration des nœuds :
+`sudo ./node-setup/k3s-registries.sh`.
+
+### Authentification GitHub d'ArgoCD
+
+Sans identifiants, ArgoCD interroge GitHub en anonyme et finit par être limité. Le
+Secret `argocd-github-creds` (modèle `repo-creds` pour `https://github.com/ekozan/`) est
+produit par External Secrets depuis OpenBao
+([`infra/post-externalsecrets/argocd-github-creds.yaml`](infra/post-externalsecrets/argocd-github-creds.yaml)).
+
+1. Créer un PAT GitHub *fine-grained* : dépôt `ekozan/agrocd-home` uniquement, permission
+   **Contents: Read-only**.
+2. Le stocker dans OpenBao :
+
+   ```bash
+   bao kv put -mount=kv kubernetes/argocd/github token="github_pat_..."
+   ```
+
+3. **Uniquement si ArgoCD est déjà limité** (il ne peut alors pas lire ce manifest),
+   créer un Secret temporaire à la main :
+
+   ```bash
+   kubectl -n argocd create secret generic github-creds-bootstrap \
+     --from-literal=type=git \
+     --from-literal=url=https://github.com/ekozan/ \
+     --from-literal=username=x-access-token \
+     --from-literal=password="github_pat_..."
+   kubectl -n argocd label secret github-creds-bootstrap argocd.argoproj.io/secret-type=repo-creds
+   ```
+
+   Le supprimer quand `argocd-github-creds` existe
+   (`kubectl -n argocd get secret argocd-github-creds`).
+
 ---
 
 ## Installation

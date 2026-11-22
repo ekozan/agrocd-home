@@ -1,0 +1,18 @@
+# Cache d'images Zot sur le NAS (TrueNAS SCALE 24.10, Apps → Discover Apps →
+# Install via YAML). Préparation des fichiers : cf. README.md de ce dossier.
+services:
+  zot:
+    image: ghcr.io/project-zot/zot-linux-amd64:v2.1.23
+    restart: unless-stopped
+    # Utilisateur « apps » de TrueNAS : le dataset doit lui appartenir.
+    user: "568:568"
+    ports:
+      - "5000:5000"
+    # DNS public fixé dans le conteneur : indépendant du resolver du NAS.
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    command: ["serve", "/etc/zot/config.json"]
+    volumes:
+      - /mnt/Erebor/apps/zot/config:/etc/zot:ro
+      - /mnt/Erebor/apps/zot/data:/var/lib/registry
