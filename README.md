@@ -195,7 +195,8 @@ agrocd-home/
 │   └── litellm-secret.yaml
 │
 ├── scripts/
-│   └── clean-master-node.sh    # Nettoyage d'un nœud master (hors ArgoCD, dry-run par défaut)
+│   ├── clean-master-node.sh    # Nettoyage d'un nœud master (hors ArgoCD, dry-run par défaut)
+│   └── k3s-node-prevention.sh  # Garde-fous disque/etcd d'un nœud (drop-ins k3s + journald)
 │
 └── chat/
     ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
@@ -649,6 +650,27 @@ sudo ./scripts/clean-master-node.sh --apply --yes --only images,logs,system
 ```
 
 > En HA, lancer le script **un master à la fois** : la défragmentation etcd bloque brièvement le membre local.
+
+### Prévention (suite à l'incident du 22/11)
+
+Le script [`scripts/k3s-node-prevention.sh`](scripts/k3s-node-prevention.sh) (dry-run par défaut, `--apply` pour écrire) pose des fichiers *drop-in* sans toucher à la config principale :
+
+| Fichier | Réglage | Pourquoi |
+|---------|---------|----------|
+| `/etc/rancher/k3s/config.yaml.d/90-prevention.yaml` | `terminated-pod-gc-threshold=500` (masters) | purge des pods morts dès 500 au lieu de 12 500 (10 047 pods Traefik évincés ont saturé etcd) |
+| idem | kubelet : GC images 75 %/60 %, logs conteneurs 20 Mi × 3 | le disque se remplit moins vite, le kubelet nettoie avant l'éviction |
+| `/etc/systemd/journald.conf.d/90-size.conf` | `SystemMaxUse=500M` | journald plafonné (3,9 Go constatés) |
+
+La partie k3s s'applique au **prochain redémarrage de k3s, un nœud à la fois** en vérifiant etcd entre chaque.
+
+Réglages Longhorn associés (le disque Longhorn partage la partition système) :
+
+```bash
+# Ne plus placer de réplique sur un disque à moins de 25 % d'espace libre
+kubectl -n longhorn-system patch settings.longhorn.io storage-minimal-available-percentage --type merge -p '{"value":"25"}'
+# Recréer automatiquement les pods quand leur volume est détaché inopinément
+kubectl -n longhorn-system patch settings.longhorn.io auto-delete-pod-when-volume-detached-unexpectedly --type merge -p '{"value":"true"}'
+```
 
 ---
 
