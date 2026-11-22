@@ -116,7 +116,9 @@ run() {
 }
 
 human() { numfmt --to=iec --suffix=B "${1:-0}" 2>/dev/null || echo "${1:-0}B"; }
-dir_size() { du -sb "$1" 2>/dev/null | awk '{print $1}'; }
+# Espace réellement occupé (et non la taille apparente) : les répliques Longhorn
+# sont des fichiers creux dont la taille apparente = taille du volume.
+dir_size() { du -s -B1 "$1" 2>/dev/null | awk '{print $1}'; }
 
 # ------------------------------------------------------------ pré-requis --
 if [[ $EUID -ne 0 ]]; then
@@ -350,15 +352,32 @@ clean_longhorn() {
   [[ -d /var/lib/longhorn ]] && info "Taille de /var/lib/longhorn sur ce nœud : $(human "$(dir_size /var/lib/longhorn)")"
 
   # ---- 4a. Volumes détachés sans PV/PVC valide (niveau cluster)
-  local pvs
-  pvs=$(k get pv -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+  # Garde-fou : si l'API ne renvoie pas la liste des PV/PVC (lenteur, timeout),
+  # on n'en déduit SURTOUT PAS que les PV ont disparu → section abandonnée.
+  local pvs pvcs
+  if ! pvs=$(k get pv --request-timeout=60s -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null) \
+     || ! pvcs=$(k get pvc -A --request-timeout=60s -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null) \
+     || [[ -z "$pvs" ]]; then
+    err "Impossible de lister les PV/PVC (API lente ?) — analyse des volumes Longhorn abandonnée."
+    return
+  fi
 
-  local cols='NAME:.metadata.name,STATE:.status.state,SIZE:.spec.size,ACTUAL:.status.actualSize,PV:.status.kubernetesStatus.pvName,PVSTATUS:.status.kubernetesStatus.pvStatus,NS:.status.kubernetesStatus.namespace,PVC:.status.kubernetesStatus.pvcName,LASTPOD:.status.kubernetesStatus.lastPodRefAt'
+  # Séparateur explicite « | » : un champ vide ne décale pas les colonnes.
+  local jp='{range .items[*]}{.metadata.name}|{.status.state}|{.spec.size}|{.status.actualSize}|{.status.kubernetesStatus.pvName}|{.status.kubernetesStatus.pvStatus}|{.status.kubernetesStatus.namespace}|{.status.kubernetesStatus.pvcName}|{.status.kubernetesStatus.lastPodRefAt}{"\n"}{end}'
+  local vols
+  if ! vols=$(k -n "$LONGHORN_NS" get volumes.longhorn.io --request-timeout=60s -o jsonpath="$jp" 2>/dev/null); then
+    err "Impossible de lister les volumes Longhorn — section abandonnée."
+    return
+  fi
   local candidates=() line name state size actual pv pvstatus ns pvc lastpod reason
-  while read -r name state size actual pv pvstatus ns pvc lastpod; do
-    [[ "$state" == "detached" ]] || continue
+  while IFS='|' read -r name state size actual pv pvstatus ns pvc lastpod; do
+    [[ -n "$name" && "$state" == "detached" ]] || continue
+    # Jamais un volume dont le PVC existe encore, quel que soit l'état du PV.
+    if [[ -n "$ns" && -n "$pvc" ]] && grep -qxF "$ns/$pvc" <<<"$pvcs"; then
+      continue
+    fi
     reason=""
-    if [[ "$pv" == "<none>" || -z "$pv" ]]; then
+    if [[ -z "$pv" ]]; then
       reason="aucun PV associé"
     elif ! grep -qxF "$pv" <<<"$pvs"; then
       reason="PV $pv supprimé"
@@ -366,8 +385,9 @@ clean_longhorn() {
       reason="PV $pv Released (PVC $ns/$pvc supprimé)"
     fi
     [[ -n "$reason" ]] || continue
-    candidates+=("$name|$size|$actual|$pv|$reason|$lastpod")
-  done < <(k -n "$LONGHORN_NS" get volumes.longhorn.io -o custom-columns="$cols" --no-headers 2>/dev/null)
+    [[ -n "$ns$pvc" ]] && reason="$reason, ancien PVC $ns/$pvc"
+    candidates+=("$name|${size:-0}|${actual:-0}|$pv|$reason|${lastpod:-?}")
+  done <<<"$vols"
 
   if [[ ${#candidates[@]} -eq 0 ]]; then
     ok "Aucun volume Longhorn orphelin."
@@ -377,7 +397,7 @@ clean_longhorn() {
     for line in "${candidates[@]}"; do
       IFS='|' read -r name size actual pv reason lastpod <<<"$line"
       printf '    %-42s %10s %10s  %s (dernier pod : %s)\n' \
-        "$name" "$(human "$size")" "$(human "${actual/<none>/0}")" "$reason" "$lastpod"
+        "$name" "$(human "$size")" "$(human "$actual")" "$reason" "$lastpod"
     done
 
     if [[ $APPLY -eq 1 ]]; then
@@ -389,7 +409,7 @@ clean_longhorn() {
           if [[ "$(k -n "$LONGHORN_NS" get volumes.longhorn.io "$name" -o jsonpath='{.status.state}' 2>/dev/null)" != "detached" ]]; then
             warn "$name n'est plus détaché — ignoré."; continue
           fi
-          if [[ "$pv" != "<none>" && -n "$pv" ]] && grep -qxF "$pv" <<<"$pvs"; then
+          if [[ -n "$pv" ]] && grep -qxF "$pv" <<<"$pvs"; then
             k delete pv "$pv" --wait=false || warn "Échec suppression PV $pv"
           fi
           k -n "$LONGHORN_NS" delete volumes.longhorn.io "$name" --wait=false \
@@ -409,7 +429,7 @@ clean_longhorn() {
     while read -r o_name o_node o_data o_disk; do
       [[ "$o_node" == "$NODE_NAME" ]] || continue
       orphans+=("$o_name|$o_data|$o_disk")
-    done < <(k -n "$LONGHORN_NS" get orphans.longhorn.io --no-headers \
+    done < <(k -n "$LONGHORN_NS" get orphans.longhorn.io --request-timeout=60s --no-headers \
                -o custom-columns='N:.metadata.name,NODE:.spec.nodeID,DATA:.spec.parameters.DataName,DISK:.spec.parameters.DiskPath' 2>/dev/null)
 
     if [[ ${#orphans[@]} -eq 0 ]]; then
@@ -422,7 +442,20 @@ clean_longhorn() {
         local p="$o_disk/replicas/$o_data"
         printf '    %-50s %10s  %s\n' "$o_name" "$( [[ -d $p ]] && human "$(dir_size "$p")" || echo '?')" "$p"
       done
-      if [[ $APPLY -eq 1 ]]; then
+      # Garde-fou : tant qu'un volume n'est pas « healthy » (degraded,
+      # reconstruction, faulted…), une réplique orpheline peut être la seule
+      # copie intacte de ses données → aucune suppression proposée.
+      local unhealthy robust
+      if robust=$(k -n "$LONGHORN_NS" get volumes.longhorn.io --request-timeout=60s \
+          -o jsonpath='{range .items[?(@.status.state=="attached")]}{.metadata.name} {.status.robustness}{"\n"}{end}' 2>/dev/null); then
+        unhealthy=$(awk 'NF && $2!="healthy"' <<<"$robust" | wc -l)
+      else
+        unhealthy="?"   # état inconnu → on bloque
+      fi
+      if [[ $APPLY -eq 1 && "$unhealthy" != "0" ]]; then
+        warn "$unhealthy volume(s) attaché(s) non « healthy » : suppression des répliques orphelines désactivée."
+        warn "Relancer une fois tous les volumes « healthy » (et une sauvegarde récente en place)."
+      elif [[ $APPLY -eq 1 ]]; then
         for line in "${orphans[@]}"; do
           IFS='|' read -r o_name o_data o_disk <<<"$line"
           if confirm "Supprimer la donnée orpheline « $o_data » ($o_disk) ?" force; then
