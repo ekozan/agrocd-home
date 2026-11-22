@@ -32,9 +32,12 @@ spec:
           create: true
         config:
           clusterWide: true
+        # Au démarrage, l'opérateur (clusterWide) charge en cache les objets de
+        # tous les namespaces : après une panne/resync complète du cluster le pic
+        # dépasse 256Mi → OOMKilled en boucle. 1Gi laisse une marge confortable.
         resources:
           requests:
             cpu: 100m
-            memory: 128Mi
-          limits:
             memory: 256Mi
+          limits:
+            memory: 1Gi

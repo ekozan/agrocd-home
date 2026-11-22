@@ -194,6 +194,9 @@ agrocd-home/
 │   ├── litellm.yaml
 │   └── litellm-secret.yaml
 │
+├── scripts/
+│   └── clean-master-node.sh    # Nettoyage d'un nœud master (hors ArgoCD, dry-run par défaut)
+│
 └── chat/
     ├── tuwunel.yaml            # Tuwunel — manifests bruts (NS, ConfigMap, PVC, Deployment, Service, Ingress, ExternalSecret)
     └── element-call.yaml       # MatrixRTC — LiveKit (SFU) + lk-jwt-service + Ingress + LoadBalancer média (MetalLB)
@@ -618,6 +621,34 @@ argocd app sync infra
 > Toujours écrire `applications.argoproj.io` en entier : Rancher installe
 > `apps.catalog.cattle.io`, dont le nom court `app` l'emporte
 > (`kubectl get app infra` → « apps.catalog.cattle.io "infra" not found »).
+
+---
+
+## Maintenance — nettoyage d'un nœud master
+
+Le script [`scripts/clean-master-node.sh`](scripts/clean-master-node.sh) (hors ArgoCD, à lancer **en root sur le nœud**) nettoie un master k3s / RKE2 (détection automatique). Il est en **dry-run par défaut** : il affiche ce qui serait supprimé sans rien modifier.
+
+| Section | Action |
+|---------|--------|
+| `images` | `crictl rmi --prune`, conteneurs arrêtés, sandboxes NotReady |
+| `logs` | journald (`--journal-max`, `--log-days`), logs tournés de `/var/log` et `/var/log/pods`, troncature de `containerd.log` / `kubelet.log` trop gros |
+| `etcd` | purge des snapshots etcd (`--etcd-retention`) + défragmentation du membre local (etcdctl ; sur RKE2 via le conteneur etcd). SQLite (kine) : rapport seul |
+| `longhorn` | volumes **détachés** sans PV, avec PV supprimé ou `Released` ; répliques orphelines (`orphans.longhorn.io`) du nœud. **Validation obligatoire volume par volume**, même avec `--yes` |
+| `k8s` | pods `Failed` / `Evicted` / `Succeeded` de tout le cluster |
+| `system` | cache apt/dnf/zypper, coredumps |
+
+```bash
+# Rapport seul (aucune modification)
+sudo ./scripts/clean-master-node.sh
+
+# Nettoyage interactif (confirmation par section)
+sudo ./scripts/clean-master-node.sh --apply
+
+# Sans confirmation pour les sections non destructives
+sudo ./scripts/clean-master-node.sh --apply --yes --only images,logs,system
+```
+
+> En HA, lancer le script **un master à la fois** : la défragmentation etcd bloque brièvement le membre local.
 
 ---
 

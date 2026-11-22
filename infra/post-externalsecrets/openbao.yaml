@@ -6,7 +6,12 @@ metadata:
 spec:
   provider:
     vault:
-      server: "https://openbao.ffd.link"
+      # Accès direct à OpenBao sur TrueNAS, sans passer par openbao.ffd.link :
+      # ce nom résout vers l'IP publique (NAT loopback) puis repasse par Traefik
+      # dans le cluster. Si Traefik ou le DNS tombent, External Secrets ne peut
+      # plus lire aucun secret (dépendance circulaire). Le segment Traefik →
+      # TrueNAS était déjà en HTTP clair sur le LAN : pas de régression.
+      server: "http://10.10.0.245:14000"
       path: "kv"
       # Version is the Vault KV secret engine version.
       # This can be either "v1" or "v2", defaults to "v2"
