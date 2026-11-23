@@ -33,10 +33,9 @@ spec:
       valuesObject: 
         ingress:
           enabled: true
-          # Protection CrowdSec (bouncer + AppSec) sur Gitea
-          annotations: {}
-            # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
-            #   router.middlewares: traefik-crowdsec@kubernetescrd
+          # Protection CrowdSec (bouncer) sur Gitea
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
           hosts:
             - host: git.ffd.link
               paths:

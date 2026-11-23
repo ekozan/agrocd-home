@@ -5,147 +5,37 @@
 # métriques) via un compte machine. AUCUNE donnée n'est envoyée à un SaaS
 # (contrairement à l'enrôlement Console). L'appli n'embarque PAS d'auth : elle
 # est exposée derrière Traefik et protégée par les middlewares `crowdsec`
-# (bouncer + AppSec) et `local-only` (réseaux LAN uniquement).
+# (bouncer) et `local-only` (réseaux LAN uniquement).
 # Accès distant : crowdsec.proxy.ffd.link (reverse proxy NetBird, SSO Zitadel ;
 # cf. infra/netbird/README.md « Services exposés »).
 #
-# Connexion au LAPI : compte machine `crowdsec-web-ui`. Le Job
-# `crowdsec-ui-register` génère UNE FOIS un mot de passe stable dans le Secret
-# crowdsec-web-ui-credentials (render déterministe, pas de churn sous selfHeal)
-# puis auto-enregistre la machine sur le LAPI d'OPNsense (POST /v1/watchers avec
-# le registrationToken, le même que les agents → validée d'office via
-# api.server.auto_registration, cf. README « CrowdSec — LAPI sur OPNsense »).
+# Connexion au LAPI : compte machine `crowdsec-web-ui`, déclaré UNE FOIS sur
+# l'OPNsense (`cscli machines add crowdsec-web-ui --password '<ui_password>'`).
+# Le mot de passe vit dans OpenBao (kv/kubernetes/crowdsec/opnsense, propriété
+# `ui_password`) et est synchronisé par external-secrets dans le Secret
+# crowdsec-web-ui-machine. Plus de Job d'enregistrement.
 ---
-# Compte de service du Job d'enregistrement de la machine
-apiVersion: v1
-kind: ServiceAccount
+# Mot de passe du compte machine `crowdsec-web-ui` sur le LAPI (OPNsense).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
 metadata:
-  name: crowdsec-ui-register
+  name: crowdsec-web-ui-machine
   namespace: crowdsec
   annotations:
     argocd.argoproj.io/sync-wave: "0"
----
-# Droits : gérer le Secret credentials, lire le registrationToken
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: crowdsec-ui-register
-  namespace: crowdsec
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: crowdsec-ui-register
-  namespace: crowdsec
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: crowdsec-ui-register
-subjects:
-  - kind: ServiceAccount
-    name: crowdsec-ui-register
-    namespace: crowdsec
----
-# Job de génération (une seule fois) du mot de passe machine de l'UI et
-# d'auto-enregistrement de la machine sur le LAPI (OPNsense).
-# Ressource NORMALE en wave 1 (PAS un hook PostSync) : ArgoCD attend qu'elle
-# soit Complete avant d'appliquer le Deployment (wave 2), garantissant que le
-# Secret crowdsec-web-ui-credentials existe AVANT que le pod UI le monte. Un
-# hook PostSync provoquerait un interblocage (le Deployment ne devient jamais
-# Healthy sans le Secret → le hook ne se déclenche jamais). Même schéma que le
-# Job crowdsec-lapi-secret-gen. Force/Replace : le Job est immuable, on le
-# remplace à chaque sync (idempotent : mot de passe stable réutilisé).
-#
-# ⚠️ PAS de ttlSecondsAfterFinished ici. Une ressource NORMALE (non-hook) est
-# comparée au dépôt Git par ArgoCD : si le TTL controller supprime le Job une
-# fois terminé, l'application passe OutOfSync (ressource Missing) et selfHeal le
-# recrée aussitôt → le Job se relance en boucle toutes les ~10 min, pour
-# toujours. Le Job terminé est donc conservé (objet unique, réutilisé) ; il est
-# relancé uniquement lors d'une vraie sync grâce à Force/Replace. Le Job
-# crowdsec-bouncer-register peut, lui, garder un TTL car c'est un hook PostSync
-# (les hooks sont exclus du diff ArgoCD).
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: crowdsec-ui-register
-  namespace: crowdsec
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-    argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
-  backoffLimit: 5
-  template:
-    spec:
-      serviceAccountName: crowdsec-ui-register
-      restartPolicy: Never
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: register
-          image: alpine/kubectl:1.36.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          env:
-            # HOME inscriptible pour le cache kubectl (rootfs en lecture seule)
-            - name: HOME
-              value: /tmp
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-
-              LAPI_URL=http://10.5.0.1:8080
-
-              # Mot de passe STABLE : généré une seule fois, jamais rotationné
-              PW=$(kubectl -n crowdsec get secret crowdsec-web-ui-credentials \
-                -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
-              if [ -z "${PW}" ]; then
-                PW=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
-                kubectl -n crowdsec create secret generic crowdsec-web-ui-credentials \
-                  --from-literal=password="${PW}"
-                echo "Mot de passe UI généré (stable)."
-              fi
-
-              # Login OK avec le mot de passe stable → machine déjà en place.
-              if wget -q -O /dev/null --header 'Content-Type: application/json' \
-                   --post-data "{\"machine_id\":\"crowdsec-web-ui\",\"password\":\"${PW}\"}" \
-                   "${LAPI_URL}/v1/watchers/login"; then
-                echo "Machine 'crowdsec-web-ui' déjà enregistrée sur le LAPI — rien à faire."
-                exit 0
-              fi
-
-              # Sinon auto-enregistrement (comme les agents) : validée d'office
-              # si l'IP source (nœud) est dans auto_registration.allowed_ranges.
-              # Échoue si la machine existe déjà avec un AUTRE mot de passe
-              # (Secret régénéré) : la supprimer sur l'OPNsense
-              # (cscli machines delete crowdsec-web-ui) puis relancer la sync.
-              TOKEN=$(kubectl -n crowdsec get secret crowdsec-lapi-secrets \
-                -o jsonpath='{.data.registrationToken}' | base64 -d)
-              wget -q -O /dev/null --header 'Content-Type: application/json' \
-                --post-data "{\"machine_id\":\"crowdsec-web-ui\",\"password\":\"${PW}\",\"registration_token\":\"${TOKEN}\"}" \
-                "${LAPI_URL}/v1/watchers"
-              echo "Machine 'crowdsec-web-ui' auto-enregistrée sur le LAPI (OPNsense)."
-      volumes:
-        - name: tmp
-          emptyDir: {}
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: crowdsec-web-ui-machine
+    creationPolicy: Owner
+  data:
+    - secretKey: password
+      remoteRef:
+        key: kubernetes/crowdsec/opnsense
+        property: ui_password
 ---
 # Persistance du cache SQLite de l'UI (alertes/décisions historisées sous
 # /app/data). Sa perte n'est pas critique (re-sync depuis le LAPI) mais évite un
@@ -210,7 +100,7 @@ spec:
             - name: CROWDSEC_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: crowdsec-web-ui-credentials
+                  name: crowdsec-web-ui-machine
                   key: password
             - name: PORT
               value: "3000"
@@ -273,9 +163,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    # CrowdSec (bouncer + AppSec) + accès LAN uniquement
-    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
-    #   router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only@kubernetescrd
+    # Accès LAN uniquement (local-only) : pas de bouncer CrowdSec sur ce service,
+    # il n'est pas joignable depuis Internet.
     traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only@kubernetescrd
 spec:
   ingressClassName: traefik
@@ -296,8 +185,8 @@ spec:
         - crowdsec.ffd.link
 ---
 # Le namespace crowdsec applique un default-deny-ingress (cf.
-# infra/network-policies/crowdsec.yaml). L'allow existant n'ouvre que l'AppSec
-# (7422) ; on autorise donc explicitement les pods Traefik à joindre l'UI
+# infra/network-policies/crowdsec.yaml) ; on autorise donc explicitement les
+# pods Traefik à joindre l'UI
 # sur le port 3000, sinon l'Ingress renverrait un 502.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

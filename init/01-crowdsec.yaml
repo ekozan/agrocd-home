@@ -26,8 +26,7 @@ spec:
               # authentifiés de l'admin. Leur trafic ne doit produire AUCUNE
               # décision (ex. custom/http-401-bf déclenché par des 401 Zitadel
               # légitimes → ban de l'admin sur idp.ffd.link). Pas de filtre :
-              # s'applique à toutes les sources de logs. Le pendant AppSec est
-              # dans appsec.configs (on_match).
+              # s'applique à toutes les sources de logs.
               netbird-whitelist.yaml: |
                 name: my/netbird-whitelist
                 description: "Whitelist des pairs NetBird (VPN overlay de confiance)"
@@ -52,7 +51,7 @@ spec:
                 whitelist:
                   reason: "OxiCloud sync + Euro-Office document server (trafic applicatif légitime à fort volume)"
                   # Les 401/403 NE sont PAS whitelistés → la détection brute-force
-                  # (custom/http-401-bf) et les bans AppSec restent actifs sur l'auth.
+                  # (custom/http-401-bf) reste active sur l'auth.
                   expression:
                     # OxiCloud — protocole de synchro compatible Nextcloud/ownCloud
                     - "(evt.Meta.http_path startsWith '/remote.php/' || evt.Meta.http_path startsWith '/ocs/' || evt.Meta.http_path == '/status.php') && evt.Meta.http_status != '401' && evt.Meta.http_status != '403'"
@@ -72,14 +71,15 @@ spec:
                 service: http
                 type: bruteforce
                 remediation: true
-        # Secret fourni par le Job generate-once (init/01-crowdsec-secret.yaml)
+        # Secret fourni par external-secrets (init/01-crowdsec-secret.yaml)
         # plutôt que randomisé par le chart → render déterministe sous ArgoCD.
-        # Seul `registrationToken` sert encore : l'agent et l'AppSec s'auto-
-        # enregistrent auprès du LAPI OPNsense avec ce jeton (cscli lapi register),
-        # qui doit donc être recopié dans la config `auto_registration` de l'OPNsense.
+        # Seul `registrationToken` sert : l'agent s'auto-enregistre auprès du
+        # LAPI OPNsense avec ce jeton (cscli lapi register), qui doit donc être
+        # identique au `auto_registration.token` de l'OPNsense.
         secrets:
           externalSecret:
-            name: crowdsec-lapi-secrets
+            # Jeton d'auto-enregistrement (OpenBao → 01-crowdsec-secret.yaml)
+            name: crowdsec-agent-registration
         # LAPI hébergé sur le pare-feu OPNsense (plugin os-crowdsec) → plus de LAPI
         # dans le cluster. Les décisions (bans) y sont centralisées et appliquées
         # aussi au niveau pare-feu ; les profils de remédiation (ban 12h
@@ -87,155 +87,12 @@ spec:
         # section « CrowdSec — LAPI sur OPNsense ».
         lapi:
           enabled: false
+        # AppSec (WAF) retiré : il était sur le chemin de CHAQUE requête
+        # (crowdsecAppsecUnreachableBlock → tout le trafic bloqué s'il tombait)
+        # et rien ne le remplace côté OPNsense. Seuls restent l'agent (détection
+        # sur les logs Traefik) et le bouncer Traefik (décisions du LAPI).
         appsec:
-          enabled: true
-          lapiURL: http://10.5.0.1:8080
-          lapiHost: 10.5.0.1
-          lapiPort: 8080
-          # Défaut du chart : 500m/250Mi avec limite CPU = request → AppSec
-          # (sur le chemin de CHAQUE requête HTTP) bridé en permanence. Pas de
-          # limite CPU (cf. init/resource-policies) ; le CRS charge ~200Mi.
-          resources:
-            requests:
-              cpu: 100m
-              memory: 200Mi
-            limits:
-              memory: 500Mi
-          # ⚠️ Les configs/règles AppSec vont sous `appsec.configs` / `appsec.rules`
-          # (PAS sous `config.*`, qui ne les monte pas dans le composant AppSec).
-          # On s'appuie sur les packs WAF TOUT-FAITS du hub CrowdSec (installés
-          # via COLLECTIONS / APPSEC_RULES ci-dessous) plutôt que des règles maison.
-          configs:
-            full-appsec.yaml: |
-              name: custom/full-appsec
-              default_remediation: ban
-              # Inband (BLOQUE immédiatement) : virtual patching CVE + génériques.
-              # Très faible taux de faux positifs → on peut bloquer directement.
-              inband_rules:
-                - crowdsecurity/base-config
-                - crowdsecurity/vpatch-*
-                - crowdsecurity/generic-*
-              # Out-of-band (ALERTE, ne bloque pas) : OWASP Core Rule Set complet
-              # (XXE, traversal, RCE, protocol/method enforcement, etc.). Le
-              # scénario crowdsecurity/crowdsec-appsec-outofband (fourni par la
-              # collection appsec-crs) corrèle ces alertes et bannit l'IP au-delà
-              # d'un seuil → équilibre couverture / faux positifs. Les exclusions
-              # Nextcloud/WebDAV (plugin crs-exclusion-plugin-nextcloud) sont
-              # incluses automatiquement par le CRS → pas de FP sur /remote.php/.
-              # Règles crowdsecurity/experimental-* volontairement NON chargées :
-              # non éprouvées, faux positifs fréquents (ex. experimental-no-user-agent
-              # sur les rappels WOPI / clients sync) qui alimentaient la corrélation
-              # out-of-band → bans d'IP légitimes.
-              outofband_rules:
-                - crowdsecurity/crs
-              # Exclusions ciblées : le CRS out-of-band (OWASP CRS) produit des
-              # faux positifs sur du trafic applicatif légitime que le pack ne
-              # sait pas modéliser. On les retire par CHEMIN via pre_eval, sans
-              # toucher aux règles inband (vpatch/generic) ni au CRS ailleurs.
-              pre_eval:
-                # --- Matrix API client (/_matrix/client/) ---
-                # API client-serveur : JSON opaque (contenu des messages, clés E2EE,
-                # session IDs base64) que le CRS ne sait pas modéliser → FP à répétition
-                # (911100 méthode, 930120 LFI sur "forwarded_count", et potentiellement
-                # SQLi/XSS sur du base64 ou du texte utilisateur) pour une valeur
-                # défensive quasi nulle (endpoints authentifiés par token, contenu
-                # stocké de façon opaque, jamais exécuté). On retire tout le CRS
-                # out-of-band sur cette API ; les règles inband (vpatch/generic) restent.
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/client/'"
-                  apply:
-                    - RemoveOutBandRuleByTag("OWASP_CRS")
-                # --- Matrix hors API client (fédération, media, key) + admin Synapse ---
-                # On GARDE le CRS actif (inspection du trafic inter-serveurs), en ne
-                # retirant que les règles à FP avéré :
-                #  - 911100 (method enforcement) : /_matrix/federation/v1/send/{txnId}
-                #    est un PUT (spec Matrix), d'autres endpoints utilisent DELETE.
-                #  - 930120 (LFI/OS file access) : un nom de champ type
-                #    "...sessions.<id>.forwarded_count" contient ".forward" → faux match
-                #    (ces noms transitent aussi dans les transactions de fédération).
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/_matrix/' && !(req.URL.Path startsWith '/_matrix/client/')"
-                  apply:
-                    - RemoveOutBandRuleByID(911100)
-                    - RemoveOutBandRuleByID(930120)
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/_synapse/'"
-                  apply:
-                    - RemoveOutBandRuleByID(911100)
-                    - RemoveOutBandRuleByID(930120)
-                # --- Forgejo/Gitea Actions runner (gRPC/protobuf) ---
-                # /api/actions/runner.v1.RunnerService/* en Content-Type
-                # application/proto. Le CRS ne sait pas parser le protobuf binaire →
-                # il lit le corps comme des ARGS et déclenche 920420 (content-type),
-                # 921150 (faux CR/LF sur octets binaires) puis 949110 (score). Le CRS
-                # n'apporte rien sur du binaire → on retire TOUT le CRS (tag OWASP_CRS)
-                # UNIQUEMENT sur ce chemin.
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/api/actions/'"
-                  apply:
-                    - RemoveOutBandRuleByTag("OWASP_CRS")
-                # --- Git smart HTTP (clone/fetch/push over HTTPS) ---
-                # /{owner}/{repo}.git/{git-upload-pack,git-receive-pack,info/refs} :
-                # Content-Type application/x-git-* + corps binaire (pack negotiation).
-                # Le CRS ne sait pas parser le protocole Git → cascade de FP :
-                # 920420 (content-type), 920450 (header Content-Encoding/Git-Protocol),
-                # 920270 (null byte), 921150 (faux CR/LF), puis 949110 (score). Le
-                # préfixe owner/repo varie → match par suffixe. On retire tout le CRS
-                # (OWASP_CRS) UNIQUEMENT sur ces endpoints de transport Git ; l'UI web
-                # et l'API Gitea restent protégées.
-                - filter: "IsOutBand == true && (req.URL.Path endsWith '/git-upload-pack' || req.URL.Path endsWith '/git-receive-pack' || req.URL.Path endsWith '/info/refs')"
-                  apply:
-                    - RemoveOutBandRuleByTag("OWASP_CRS")
-                # --- Kasm Docker Agent → manager (/manager_api/) ---
-                # Heartbeat des agents : JSON d'inventaire Docker (docker_info,
-                # docker_images, docker_networks…). Les NOMS de champs contiennent
-                # ".docker" → 930120 (LFI) déclenché sur chaque clé (score ~1375),
-                # et "name=seccomp,profile=builtin" → 932260 (RCE) → ban de l'agent
-                # à chaque heartbeat. API machine-à-machine authentifiée par token
-                # d'agent → on retire tout le CRS UNIQUEMENT sur ce préfixe ; l'UI
-                # Kasm et /api/ restent inspectées.
-                - filter: "IsOutBand == true && req.URL.Path startsWith '/manager_api/'"
-                  apply:
-                    - RemoveOutBandRuleByTag("OWASP_CRS")
-              on_match:
-                # Whitelist 10.5.0.1 : gateway OPNsense sur laquelle hairpine tout le
-                # LAN de confiance (runner Gitea, Renovate, NetBird, clients LAN via
-                # FQDN public). SetRemediation("allow") lève AUSSI le blocage inband
-                # de l'AppSec (sinon un faux positif WAF renvoie 403 à tout le LAN,
-                # ex. le login OxiCloud / l'app Nextcloud) ; CancelAlert/CancelEvent
-                # évitent en plus tout ban (corrélation out-of-band incluse).
-                # ⚠️ Compromis assumé : le trafic interne hairpiné n'est plus inspecté
-                # (ni bloqué ni banni) — angle mort si un hôte interne est compromis.
-                # Le trafic EXTERNE (vraies IP publiques) reste, lui, pleinement filtré.
-                # Le lever proprement : split DNS / Pure NAT côté OPNsense pour que les
-                # clients internes gardent leur vraie IP (décisions ciblées par machine).
-                #
-                # Même traitement pour les pairs NetBird (100.64.0.0/10, plage CGNAT
-                # du VPN overlay) : appareils authentifiés de l'admin, sinon un faux
-                # positif WAF ou une corrélation out-of-band le bannit (vu le
-                # 2026-10-05 sur idp.ffd.link). Même compromis que ci-dessus.
-                - filter: "req.RemoteAddr == '10.5.0.1' || IpInRange(req.RemoteAddr, '100.64.0.0/10')"
-                  apply:
-                    - SetRemediation("allow")
-                    - CancelAlert()
-                    - CancelEvent()
-                - filter: "IsOutBand == true && req.RemoteAddr != '10.5.0.1' && !IpInRange(req.RemoteAddr, '100.64.0.0/10')"
-                  apply:
-                    - SendAlert()
-          acquisitions:
-            - source: appsec
-              listen_addr: "0.0.0.0:7422"
-              path: /
-              appsec_config: custom/full-appsec
-              labels:
-                type: appsec
-          env:
-            # Collections WAF du hub : virtual patching + règles génériques +
-            # OWASP Core Rule Set (config crowdsecurity/crs + règle CRS + scénario
-            # de corrélation out-of-band).
-            - name: COLLECTIONS
-              value: "crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/appsec-crs"
-            # Plugin d'exclusion CRS pour Nextcloud/WebDAV (c'est une appsec-rule,
-            # pas une collection) → installé via APPSEC_RULES ; ses datafiles sont
-            # inclus automatiquement par le CRS pour éviter les FP sur la synchro.
-            - name: APPSEC_RULES
-              value: "crowdsecurity/crs-exclusion-plugin-nextcloud"
+          enabled: false
         # Agent : DaemonSet qui parse les logs des pods et détecte les comportements
         agent:
           # DaemonSet sur TOUS les nœuds → l'agent est co-localisé avec Traefik
@@ -272,5 +129,5 @@ spec:
       - CreateNamespace=true
     automated:
       prune: true
-      # Secret LAPI désormais déterministe (Job generate-once) → plus de churn
+      # Secret d'enregistrement fourni par external-secrets → render déterministe
       selfHeal: true

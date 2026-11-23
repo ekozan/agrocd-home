@@ -14,8 +14,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
     argocd.argoproj.io/sync-options: Delete=false
-    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
-    #   router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+    # Accès LAN/VPN uniquement (local-only-cluster) : pas de bouncer CrowdSec,
+    # ces hôtes ne sont pas joignables depuis Internet.
     traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only-cluster@kubernetescrd
 spec:
   ingressClassName: traefik
@@ -134,8 +134,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/sync-options: Delete=false
-    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
-    #   router.middlewares: traefik-crowdsec@kubernetescrd,traefik-local-only-cluster@kubernetescrd
+    # Accès LAN/VPN uniquement (local-only-cluster) : pas de bouncer CrowdSec,
+    # ces hôtes ne sont pas joignables depuis Internet.
     traefik.ingress.kubernetes.io/router.middlewares: traefik-local-only-cluster@kubernetescrd
 spec:
   ingressClassName: traefik
@@ -167,8 +167,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/sync-options: Delete=false
-    # CROWDSEC-OFF (temporaire, mise à jour CrowdSec) — valeur d'origine :
-    #   router.middlewares: traefik-crowdsec@kubernetescrd
+    # Bouncer CrowdSec (décisions du LAPI OPNsense)
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-crowdsec@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
