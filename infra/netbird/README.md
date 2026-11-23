@@ -195,7 +195,7 @@ kubectl -n kelos-system get svc kelos-console-server -o jsonpath='{.spec.cluster
 ## Notes
 
 - **Pas de CrowdSec Traefik sur `*.proxy.ffd.link`** : en passthrough, Traefik ne
-  voit pas le HTTP (ni bouncer, ni AppSec, ni access logs → pas de détection par
+  voit pas le HTTP (ni bouncer, ni access logs → pas de détection par
   l'agent). Seule la réputation IP du proxy s'applique.
 - **Domaine personnalisé** (CNAME vers `proxy.ffd.link`) : l'ajouter au `match` de
   l'IngressRouteTCP, sinon Traefik le traite comme un hôte HTTP inconnu.

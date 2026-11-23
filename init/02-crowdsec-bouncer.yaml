@@ -1,14 +1,11 @@
-# Clé du bouncer Traefik CrowdSec.
+# Bouncer Traefik CrowdSec : page de blocage + clé API.
 #
-# Ce Job génère (une seule fois) une clé stable et la publie dans le Secret
-# traefik/crowdsec-bouncer-key. Le LAPI étant hébergé sur le pare-feu OPNsense
-# (hors cluster), le Job ne peut plus l'y enregistrer lui-même : la clé est
-# déclarée UNE FOIS sur l'OPNsense (cscli bouncers add traefik-bouncer --key …,
-# cf. README « CrowdSec — LAPI sur OPNsense »).
-# Les Middlewares qui la consomment sont, eux, déclarés dans Git
-# (03-traefik-middlewares.yaml) : ils ne dépendent plus de l'exécution du Job
-# pour exister (auparavant créés ici par kubectl apply, hors Git, ils n'étaient
-# jamais recréés par ArgoCD une fois supprimés).
+# La clé du bouncer `traefik-bouncer` (déclarée sur le LAPI de l'OPNsense avec
+# `cscli bouncers add traefik-bouncer --key …`) vit dans OpenBao,
+# kv/kubernetes/crowdsec/opnsense, propriété `bouncer_api_key`. external-secrets
+# la publie dans traefik/crowdsec-bouncer-apikey, lu au runtime par le
+# Middleware `crowdsec` (03-traefik-middlewares.yaml) via
+# urn:k8s:secret:crowdsec-bouncer-apikey:apiKey. Plus aucun Job.
 ---
 # Page servie par le bouncer (banHTMLFilePath) lors d'un blocage.
 # Le plugin n'expose qu'UNE option de page, mais le fichier est rendu comme un
@@ -111,136 +108,27 @@ data:
     </body>
     </html>
 ---
-apiVersion: v1
-kind: ServiceAccount
+# Clé du bouncer, dans le namespace du Middleware (Traefik ne résout
+# urn:k8s:secret: que dans le namespace du Middleware).
+# SkipDryRunOnMissingResource : CRD fournie par la couche infra (external-secrets).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
 metadata:
-  name: crowdsec-bouncer-register
-  namespace: crowdsec
----
-# Droits côté CrowdSec : lire/créer le Secret source de la clé
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: crowdsec-bouncer-register
-  namespace: crowdsec
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: crowdsec-bouncer-register
-  namespace: crowdsec
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: crowdsec-bouncer-register
-subjects:
-  - kind: ServiceAccount
-    name: crowdsec-bouncer-register
-    namespace: crowdsec
----
-# Droits côté Traefik : publier la clé du bouncer (Secret lu par les Middlewares)
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: crowdsec-bouncer-register
+  name: crowdsec-bouncer-apikey
   namespace: traefik
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    resourceNames: ["crowdsec-bouncer-key"]
-    verbs: ["get", "patch", "update"]
-  # create ne peut pas être restreint par resourceNames (nom inconnu à la création)
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: crowdsec-bouncer-register
-  namespace: traefik
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: crowdsec-bouncer-register
-subjects:
-  - kind: ServiceAccount
-    name: crowdsec-bouncer-register
-    namespace: crowdsec
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: crowdsec-bouncer-register
-  namespace: crowdsec
   annotations:
-    # Hook de phase Sync, wave 2 : rejoué à chaque sync, AVANT les Middlewares crowdsec*
-    # (wave 3) qui lisent le Secret traefik/crowdsec-bouncer-key. En PostSync,
-    # les Middlewares pointaient vers un Secret pas encore créé → routes en
-    # erreur jusqu'à la fin de la sync. Supprimé si succès.
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/sync-wave: "2"
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded BeforeHookCreation
-    argocd.argoproj.io/sync-options: Force=true,Replace=true
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  backoffLimit: 5
-  ttlSecondsAfterFinished: 600
-  template:
-    spec:
-      serviceAccountName: crowdsec-bouncer-register
-      restartPolicy: Never
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: register
-          image: alpine/kubectl:1.36.4
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          env:
-            # HOME inscriptible pour le cache kubectl (rootfs en lecture seule)
-            - name: HOME
-              value: /tmp
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-          command: ["/bin/sh", "-c"]
-          args: 
-            - |
-              set -eu
-              # Clé STABLE du bouncer : générée une seule fois, jamais rotationnée
-              KEY=$(kubectl -n crowdsec get secret crowdsec-bouncer-key \
-                -o jsonpath='{.data.apiKey}' 2>/dev/null | base64 -d 2>/dev/null || true)
-              if [ -z "${KEY}" ]; then
-                KEY=$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
-                kubectl -n crowdsec create secret generic crowdsec-bouncer-key \
-                  --from-literal=apiKey="${KEY}"
-                echo "Clé bouncer générée (stable)."
-              fi
-
-              # Le LAPI (OPNsense) doit porter CETTE clé : à déclarer une fois
-              # sur le pare-feu, sinon le bouncer prend des 403.
-              echo "Sur l'OPNsense : cscli bouncers add traefik-bouncer --key <crowdsec/crowdsec-bouncer-key:apiKey>"
-
-              # Les Middlewares crowdsec / crowdsec-largebody sont déclarés dans
-              # Git (03-traefik-middlewares.yaml) et lisent la clé via
-              # urn:k8s:secret:crowdsec-bouncer-key:apiKey -> on publie la clé
-              # dans un Secret du namespace traefik (Traefik ne résout que les
-              # Secrets du namespace du Middleware). Idempotent (apply).
-              kubectl -n traefik create secret generic crowdsec-bouncer-key \
-                --from-literal=apiKey="${KEY}" --dry-run=client -o yaml \
-                | kubectl apply -f -
-              echo "Secret traefik/crowdsec-bouncer-key à jour."
-      volumes:
-        - name: tmp
-          emptyDir: {}
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: crowdsec-bouncer-apikey
+    creationPolicy: Owner
+  data:
+    - secretKey: apiKey
+      remoteRef:
+        key: kubernetes/crowdsec/opnsense
+        property: bouncer_api_key
