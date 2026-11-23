@@ -1,5 +1,5 @@
 # Instance PostgreSQL centralisée (CloudNativePG).
-# Une seule instance héberge toutes les bases applicatives (Database CRD,
+# Un primaire + un réplica hébergent toutes les bases applicatives (Database CRD,
 # fichiers 02-db-<app>.yaml), chacune avec son rôle propriétaire dédié.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -9,7 +9,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
-  instances: 1
+  instances: 2
   imageName: ghcr.io/cloudnative-pg/postgresql:16
   primaryUpdateStrategy: unsupervised
 
